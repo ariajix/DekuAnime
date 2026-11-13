@@ -9,6 +9,11 @@ permissions:
   contents: write
 
 jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "Ubuntu runner works!"
+
   build-ios:
     name: Build iOS IPA
     runs-on: macos-13
