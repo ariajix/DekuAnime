@@ -15,7 +15,7 @@ struct WatchlistView: View {
         NavigationStack {
             VStack(alignment: .leading, spacing: 16) {
                 header
-                if storage.watchlist.isEmpty {
+                if storage.watchlistAnimes.isEmpty {
                     emptyState
                 } else {
                     grid
@@ -64,7 +64,7 @@ struct WatchlistView: View {
     private var grid: some View {
         ScrollView {
             LazyVGrid(columns: columns, spacing: 12) {
-                ForEach(storage.watchlist) { anime in
+                ForEach(storage.watchlistAnimes) { anime in
                     NavigationLink(value: anime) {
                         WatchlistItemView(anime: anime)
                     }
@@ -79,7 +79,7 @@ struct WatchlistView: View {
                     }
                 }
             }
-            .animation(.default, value: storage.watchlist)
+            .animation(.default, value: storage.watchlistAnimes)
         }
         .navigationDestination(for: AnimeItem.self) { anime in
             DetailView(anime: anime)

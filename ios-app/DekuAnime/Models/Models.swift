@@ -10,6 +10,7 @@ public struct MediaItem: Identifiable, Codable, Equatable, Hashable {
     public let rating: String
     public let site: String
     public let tags: [String]
+    public var coverURL: URL? { URL(string: posterUrl) }
 
     public init(
         title: String,
@@ -38,6 +39,73 @@ public struct MediaItem: Identifiable, Codable, Equatable, Hashable {
 
 public typealias Boolean = Bool
 
+public struct Season: Identifiable, Hashable, Codable {
+    public let id: UUID
+    public let number: Int
+    public let episodes: [Episode]
+    
+    public init(id: UUID = UUID(), number: Int, episodes: [Episode]) {
+        self.id = id
+        self.number = number
+        self.episodes = episodes
+    }
+}
+
+public struct Episode: Identifiable, Hashable, Codable {
+    public let id: UUID
+    public let number: Int
+    public let title: String
+    public let hasGermanDub: Bool
+    public let streamURL: URL?
+    
+    public init(id: UUID = UUID(), number: Int, title: String, hasGermanDub: Bool = true, streamURL: URL? = nil) {
+        self.id = id
+        self.number = number
+        self.title = title
+        self.hasGermanDub = hasGermanDub
+        self.streamURL = streamURL
+    }
+}
+
+public struct Anime: Identifiable, Hashable, Codable {
+    public let id: UUID
+    public let title: String
+    public let imageName: String
+    public let posterURL: URL?
+    public let synopsis: String
+    public let genres: [String]
+    public let seasons: [Season]
+    public let rank: Int?
+    public var coverURL: URL? { posterURL }
+    public var isInWatchlist: Bool = false
+    
+    public init(
+        id: UUID = UUID(),
+        title: String,
+        imageName: String = "",
+        posterURL: URL? = nil,
+        synopsis: String = "Anime auf AniWorld in deutschem Ton und Untertitel streamen.",
+        genres: [String] = ["Action", "Anime"],
+        seasons: [Season] = [
+            Season(number: 1, episodes: (1...12).map { Episode(number: $0, title: "Episode \($0)") })
+        ],
+        rank: Int? = nil,
+        isInWatchlist: Bool = false
+    ) {
+        self.id = id
+        self.title = title
+        self.imageName = imageName
+        self.posterURL = posterURL ?? URL(string: "https://aniworld.to/favicon.ico")
+        self.synopsis = synopsis
+        self.genres = genres
+        self.seasons = seasons
+        self.rank = rank
+        self.isInWatchlist = isInWatchlist
+    }
+}
+
+public typealias AnimeItem = Anime
+
 public struct HomeRow: Identifiable, Codable {
     public var id: String { title }
     public let title: String
@@ -65,7 +133,7 @@ public struct EpisodeInfo: Identifiable, Codable {
     public let titleGerman: String
     public let titleRomaji: String
     public let url: String
-    public var providers: [String: [String]] // ProviderName -> [Language/RedirectUrls]
+    public var providers: [String: [String]]
 
     public init(
         episodeNumber: Int,
@@ -117,4 +185,3 @@ public struct EpisodeProgress: Codable {
     public let durationSeconds: Double
     public let updatedAt: Date
 }
-

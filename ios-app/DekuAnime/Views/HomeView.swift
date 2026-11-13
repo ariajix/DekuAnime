@@ -1,14 +1,5 @@
 import SwiftUI
 
-// MARK: - Models
-
-struct Anime: Identifiable, Hashable {
-    let id = UUID()
-    let title: String
-    let imageName: String   // Use asset name or system image for placeholder
-    let rank: Int?
-}
-
 // MARK: - Sample Data
 
 extension Anime {

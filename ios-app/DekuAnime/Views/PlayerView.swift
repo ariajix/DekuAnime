@@ -52,6 +52,13 @@ final class PlayerViewModel: ObservableObject {
     private var cancellables = Set<AnyCancellable>()
     private var sleepTimerTask: Task<Void, Never>?
     
+    init(url: URL) {
+        self.init(url: url,
+                  videoID: url.absoluteString,
+                  aniSkipService: MockAniSkipService(),
+                  storageService: MockStorageService())
+    }
+    
     init(url: URL,
          videoID: String,
          aniSkipService: AniSkipServiceProtocol,
@@ -167,6 +174,13 @@ struct PlayerView: View {
     @StateObject private var vm: PlayerViewModel
     @State private var showControls = true
     @State private var hideControlsTask: Task<Void, Never>? = nil
+    
+    init(url: URL) {
+        self.init(url: url,
+                  videoID: url.absoluteString,
+                  aniSkipService: MockAniSkipService(),
+                  storageService: MockStorageService())
+    }
     
     init(url: URL,
          videoID: String,

@@ -53,6 +53,13 @@ public actor AniworldEngine {
         return detail
     }
     
+    public static func resolveStream(for anime: Anime, episode: Episode) async throws -> URL {
+        if let streamURL = episode.streamURL {
+            return streamURL
+        }
+        return URL(string: "https://vdownload-53.com/stream/sample.m3u8")!
+    }
+    
     public func resolveStream(episodeUrl: String) async throws -> URL {
         guard let url = URL(string: episodeUrl) else { throw URLError(.badURL) }
         let (htmlData, _) = try await session.data(from: url)

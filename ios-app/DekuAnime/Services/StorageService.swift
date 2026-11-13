@@ -38,29 +38,31 @@ public struct PlaybackProgress: Codable, Hashable {
 
 // MARK: - StorageService
 
-@Observable
 @MainActor
-public final class StorageService {
+public final class StorageService: ObservableObject {
+    public static let shared = StorageService()
     
     // MARK: - Public Published Properties
     
-    public private(set) var activeProfileName: String = "Deku" {
+    @Published public private(set) var activeProfileName: String = "Deku" {
         didSet { persistActiveProfileName() }
     }
     
-    public private(set) var profileNames: [String] = [] {
+    @Published public private(set) var profileNames: [String] = [] {
         didSet { persistProfileNames() }
     }
     
-    public private(set) var history: [HistoryEntry] = [] {
+    @Published public private(set) var history: [HistoryEntry] = [] {
         didSet { saveHistory() }
     }
     
-    public private(set) var watchlist: Set<String> = [] { // Store MediaItem.id
+    @Published public private(set) var watchlist: Set<String> = [] {
         didSet { saveWatchlist() }
     }
     
-    public private(set) var episodeProgress: [String: PlaybackProgress] = [:] { // key: "\(mediaId)_S\(season)E\(episode)"
+    @Published public private(set) var watchlistAnimes: [Anime] = []
+    
+    @Published public private(set) var episodeProgress: [String: PlaybackProgress] = [:] {
         didSet { saveProgress() }
     }
     
@@ -138,8 +140,24 @@ public final class StorageService {
         }
     }
     
+    public func removeFromWatchlist(_ anime: Anime) {
+        watchlist.remove(anime.id.uuidString)
+        watchlistAnimes.removeAll { $0.id == anime.id }
+    }
+    
+    public func addToWatchlist(_ anime: Anime) {
+        watchlist.insert(anime.id.uuidString)
+        if !watchlistAnimes.contains(where: { $0.id == anime.id }) {
+            watchlistAnimes.append(anime)
+        }
+    }
+    
     public func isInWatchlist(item: MediaItem) -> Bool {
         watchlist.contains(item.id)
+    }
+    
+    public func isInWatchlist(anime: Anime) -> Bool {
+        watchlist.contains(anime.id.uuidString)
     }
     
     // MARK: - Playback Progress
