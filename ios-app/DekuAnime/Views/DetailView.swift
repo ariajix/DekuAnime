@@ -137,7 +137,7 @@ struct DetailView: View {
                 }
             }
             .onAppear {
-                isInWatchlist = anime.isInWatchlist
+                isInWatchlist = StorageService.shared.isInWatchlist(anime: anime)
                 selectedSeason = anime.seasons.first
                 episodes = selectedSeason?.episodes ?? []
                 loadWatchedEpisodes()
@@ -155,7 +155,11 @@ struct DetailView: View {
     
     private func toggleWatchlist() {
         isInWatchlist.toggle()
-        // Persist change to your data store here
+        if isInWatchlist {
+            StorageService.shared.addToWatchlist(anime)
+        } else {
+            StorageService.shared.removeFromWatchlist(anime)
+        }
     }
     
     private func playEpisode(_ episode: Episode) async {

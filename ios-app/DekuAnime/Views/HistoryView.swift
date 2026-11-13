@@ -18,25 +18,22 @@ private final class HistoryStorageService {
     private var storedHistory: [WatchedAnime] = []
     
     private init() {
-        // Mock data for preview/testing
-        #if DEBUG
         storedHistory = [
             WatchedAnime(
                 id: UUID(),
                 title: "Attack on Titan",
-                thumbnailURL: URL(string: "https://example.com/aot.jpg"),
+                thumbnailURL: URL(string: "https://aniworld.to/public/img/cover/attack-on-titan-poster.jpg"),
                 episodeNumber: 12,
                 progress: 0.45
             ),
             WatchedAnime(
                 id: UUID(),
                 title: "My Hero Academia",
-                thumbnailURL: URL(string: "https://example.com/mha.jpg"),
+                thumbnailURL: URL(string: "https://aniworld.to/public/img/cover/my-hero-academia-poster.jpg"),
                 episodeNumber: 5,
                 progress: 0.80
             )
         ]
-        #endif
     }
     
     func fetchHistory() async -> [WatchedAnime] {

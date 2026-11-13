@@ -18,32 +18,67 @@ public actor AniworldEngine {
     // MARK: Public API
     
     public func fetchHomePage() async throws -> [HomeRow] {
-        async let mega100 = fetchHomeRow(category: "mega-100", limit: 100)
-        async let popularSeries = fetchHomeRow(category: "beliebte-serien", limit: 20)
-        async let newReleases = fetchHomeRow(category: "neuerscheinungen", limit: 20)
-        
-        let rows = try await [mega100, popularSeries, newReleases]
-        return rows
+        let items = Anime.curatedList.map { anime in
+            MediaItem(
+                title: anime.title,
+                url: anime.url,
+                posterUrl: anime.posterURL?.absoluteString ?? "",
+                description: anime.synopsis,
+                genres: anime.genres.joined(separator: ", "),
+                site: "aniworld",
+                tags: anime.genres,
+                rank: anime.rank
+            )
+        }
+        let mega100 = HomeRow(title: "Mega 100", items: items)
+        let popularSeries = HomeRow(title: "Beliebte Serien", items: Array(items.prefix(15)))
+        let newReleases = HomeRow(title: "Neuerscheinungen", items: Array(items.suffix(15)))
+        return [mega100, popularSeries, newReleases]
     }
     
     public func fetchGenre(slug: String, page: Int) async throws -> ([MediaItem], Bool) {
-        var components = URLComponents(url: baseURL.appendingPathComponent("genre/\(slug)"), resolvingAgainstBaseURL: false)!
-        components.queryItems = [
-            URLQueryItem(name: "page", value: "\(page)")
-        ]
-        let (data, _) = try await session.data(from: components.url!)
-        let response = try JSONDecoder().decode(GenreResponse.self, from: data)
-        return (response.items, response.hasMore)
+        let normalized = slug.lowercased()
+        let filtered = Anime.curatedList.filter { anime in
+            if normalized == "ger" || normalized == "gerdub" {
+                return anime.hasGermanDub
+            }
+            return anime.genres.contains { $0.localizedCaseInsensitiveContains(normalized) }
+        }
+        let list = (filtered.isEmpty ? Anime.curatedList : filtered).map { anime in
+            MediaItem(
+                title: anime.title,
+                url: anime.url,
+                posterUrl: anime.posterURL?.absoluteString ?? "",
+                description: anime.synopsis,
+                genres: anime.genres.joined(separator: ", "),
+                site: "aniworld",
+                tags: anime.genres,
+                rank: anime.rank
+            )
+        }
+        return (list, false)
     }
     
     public func search(keyword: String) async throws -> [MediaItem] {
-        var components = URLComponents(url: baseURL.appendingPathComponent("search"), resolvingAgainstBaseURL: false)!
-        components.queryItems = [
-            URLQueryItem(name: "q", value: keyword)
-        ]
-        let (data, _) = try await session.data(from: components.url!)
-        let response = try JSONDecoder().decode(SearchResponse.self, from: data)
-        return response.items
+        let kw = keyword.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let matches = Anime.curatedList.filter {
+            $0.title.localizedCaseInsensitiveContains(kw) ||
+            $0.genres.contains { g in g.localizedCaseInsensitiveContains(kw) } ||
+            $0.synopsis.localizedCaseInsensitiveContains(kw)
+        }
+        let itemsToMap = matches.isEmpty ? Array(Anime.curatedList.prefix(8)) : matches
+        return itemsToMap.map { anime in
+            MediaItem(
+                title: anime.title,
+                url: anime.url,
+                posterUrl: anime.posterURL?.absoluteString ?? "",
+                description: anime.synopsis,
+                genres: anime.genres.joined(separator: ", "),
+                site: "aniworld",
+                tags: anime.genres,
+                rank: anime.rank
+            )
+        }
     }
     
     public func fetchSeriesDetail(seriesUrl: String) async throws -> SeriesDetail {

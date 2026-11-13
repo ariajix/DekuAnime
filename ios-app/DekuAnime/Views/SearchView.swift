@@ -31,7 +31,7 @@ class SearchViewModel: ObservableObject {
     init() {
         Publishers.CombineLatest(
             $query
-                .debounce(for: .seconds(0.5), scheduler: DispatchQueue.main)
+                .debounce(for: .seconds(0.3), scheduler: DispatchQueue.main)
                 .removeDuplicates(),
             $filter
         )
@@ -39,18 +39,35 @@ class SearchViewModel: ObservableObject {
             self?.performSearch(query: query, filter: filter)
         }
         .store(in: &cancellables)
+        
+        performSearch(query: "", filter: .all)
     }
     
     private func performSearch(query: String, filter: SearchFilter) {
-        guard !query.isEmpty else {
-            results = []
-            return
-        }
         isLoading = true
         Task {
             do {
-                let items = try await AniworldEngine.shared.search(keyword: query)
-                let fetched = items.map { SearchAnime(title: $0.title, imageURL: $0.coverURL) }
+                let items: [MediaItem]
+                if query.isEmpty {
+                    items = Anime.curatedList.prefix(16).map { anime in
+                        MediaItem(
+                            title: anime.title,
+                            url: anime.url,
+                            posterUrl: anime.posterURL?.absoluteString ?? "",
+                            description: anime.synopsis,
+                            genres: anime.genres.joined(separator: ", "),
+                            site: "aniworld",
+                            tags: anime.genres,
+                            rank: anime.rank
+                        )
+                    }
+                } else {
+                    items = try await AniworldEngine.shared.search(keyword: query)
+                }
+                let filtered = (filter == .gerDub) ? items.filter { it in
+                    it.tags.contains(where: { $0.localizedCaseInsensitiveContains("ger") || $0.localizedCaseInsensitiveContains("dub") })
+                } : items
+                let fetched = filtered.map { SearchAnime(title: $0.title, imageURL: $0.coverURL) }
                 await MainActor.run {
                     self.results = fetched
                     self.isLoading = false

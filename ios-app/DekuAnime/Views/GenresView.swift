@@ -32,16 +32,21 @@ class AnimeService {
         offset: Int,
         limit: Int
     ) async throws -> [GenreAnime] {
-        // Simulate network latency
-        try await Task.sleep(nanoseconds: 500_000_000)
-        
-        // Generate dummy titles
-        let base = germanDubOnly ? "GER Dub" : "ENG"
-        return (offset..<offset+limit).map { i in
+        let matching = Anime.curatedList.filter { anime in
+            let matchesGenre = genre.isEmpty || anime.genres.contains { g in
+                g.localizedCaseInsensitiveContains(genre) ||
+                (genre.contains("Shounen") && (g.contains("Shonen") || g.contains("Action")))
+            }
+            let matchesDub = !germanDubOnly || anime.hasGermanDub
+            return matchesGenre && matchesDub
+        }
+        let list = matching.isEmpty ? Anime.curatedList : matching
+        let paged = list.dropFirst(offset).prefix(limit)
+        return paged.map { anime in
             GenreAnime(
-                title: "\(genre) \(base) Title \(i + 1)",
-                imageURL: nil,
-                isGermanDub: germanDubOnly
+                title: anime.title,
+                imageURL: anime.posterURL,
+                isGermanDub: anime.hasGermanDub
             )
         }
     }
@@ -111,23 +116,45 @@ private struct GenreAnimeCardView: View {
     let anime: GenreAnime
     
     var body: some View {
-        VStack {
-            Rectangle()
-                .fill(Color.gray.opacity(0.3))
-                .aspectRatio(3/4, contentMode: .fit)
-                .overlay(
-                    Text(anime.title.prefix(1))
-                        .font(.largeTitle)
-                        .foregroundColor(.white)
-                )
+        VStack(alignment: .leading, spacing: 4) {
+            AsyncImage(url: anime.imageURL) { phase in
+                switch phase {
+                case .empty:
+                    ZStack {
+                        Color(hex: "1A1C22")
+                        ProgressView().tint(Color(hex: "10B981"))
+                    }
+                case .success(let image):
+                    image
+                        .resizable()
+                        .scaledToFill()
+                case .failure:
+                    ZStack {
+                        Color(hex: "1A1C22")
+                        Image(systemName: "film")
+                            .foregroundColor(.gray)
+                    }
+                @unknown default:
+                    Color(hex: "1A1C22")
+                }
+            }
+            .frame(height: 160)
+            .clipped()
+            .cornerRadius(8)
+            
             Text(anime.title)
-                .font(.caption)
+                .font(.caption.bold())
                 .foregroundColor(.white)
-                .lineLimit(2)
-                .multilineTextAlignment(.center)
-                .padding([.horizontal, .bottom], 4)
+                .lineLimit(1)
+                .padding(.horizontal, 4)
+            
+            Text(anime.isGermanDub ? "Ger Dub" : "Ger Sub")
+                .font(.caption2)
+                .foregroundColor(anime.isGermanDub ? Color(hex: "10B981") : .gray)
+                .padding(.horizontal, 4)
+                .padding(.bottom, 6)
         }
-        .background(Color(hex: "#1E2127"))
+        .background(Color(hex: "141519"))
         .cornerRadius(8)
         .shadow(color: .black.opacity(0.4), radius: 2, x: 0, y: 2)
     }

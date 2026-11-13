@@ -1,20 +1,37 @@
 import SwiftUI
 
-// MARK: - Sample Data
+// MARK: - Poster Image Helper
 
-extension Anime {
-    static let sampleTrending = Anime(title: "Demon Slayer", imageName: "hero1", rank: nil)
-    static let sampleList: [Anime] = (1...20).map {
-        Anime(title: "Anime \($0)", imageName: "thumb\($0 % 5 + 1)", rank: nil)
-    }
-    static let sampleMega100: [Anime] = (1...100).map {
-        Anime(title: "Anime \($0)", imageName: "thumb\($0 % 5 + 1)", rank: $0)
-    }
-    static let samplePopular: [Anime] = (1...10).map {
-        Anime(title: "Popular \($0)", imageName: "thumb\($0 % 5 + 1)", rank: nil)
-    }
-    static let sampleNew: [Anime] = (1...10).map {
-        Anime(title: "New \($0)", imageName: "thumb\($0 % 5 + 1)", rank: nil)
+struct PosterImageView: View {
+    let url: URL?
+    var width: CGFloat? = nil
+    var height: CGFloat
+    
+    var body: some View {
+        AsyncImage(url: url) { phase in
+            switch phase {
+            case .empty:
+                ZStack {
+                    Color(hex: "1A1C22")
+                    ProgressView().tint(Color(hex: "10B981"))
+                }
+            case .success(let image):
+                image
+                    .resizable()
+                    .scaledToFill()
+            case .failure:
+                ZStack {
+                    Color(hex: "1A1C22")
+                    Image(systemName: "film")
+                        .foregroundColor(.gray)
+                }
+            @unknown default:
+                Color(hex: "1A1C22")
+            }
+        }
+        .frame(width: width, height: height)
+        .clipped()
+        .cornerRadius(8)
     }
 }
 
@@ -22,10 +39,10 @@ extension Anime {
 
 struct HomeView: View {
     @State private var isGerman = false
-    @State private var trendingAnime: Anime = Anime.sampleTrending
-    @State private var mega100 = Anime.sampleMega100
-    @State private var popularSeries = Anime.samplePopular
-    @State private var newReleases = Anime.sampleNew
+    @State private var trendingAnime: Anime = Anime.curatedList[0]
+    @State private var mega100: [Anime] = Anime.curatedList
+    @State private var popularSeries: [Anime] = Array(Anime.curatedList.prefix(15))
+    @State private var newReleases: [Anime] = Array(Anime.curatedList.suffix(15))
     
     var body: some View {
         NavigationStack {
@@ -43,6 +60,12 @@ struct HomeView: View {
             .refreshable {
                 await loadData()
             }
+            .task {
+                await loadData()
+            }
+            .onChange(of: isGerman) { _ in
+                Task { await loadData() }
+            }
             .navigationBarHidden(true)
         }
     }
@@ -58,31 +81,40 @@ struct HomeView: View {
             
             Spacer()
             
-            Toggle(isOn: $isGerman) {
-                Text("Ger Dub")
-                    .font(.caption)
-                    .foregroundColor(.white)
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 4)
-                    .background(Color.blue.opacity(0.8))
-                    .cornerRadius(12)
+            Button(action: {
+                isGerman.toggle()
+            }) {
+                HStack(spacing: 4) {
+                    Text("🎧")
+                        .font(.caption2)
+                    Text(isGerman ? "NUR DUB" : "ALLE")
+                        .font(.caption.bold())
+                }
+                .foregroundColor(isGerman ? Color(hex: "10B981") : .gray)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 5)
+                .background(isGerman ? Color(hex: "10B981").opacity(0.2) : Color.white.opacity(0.1))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 14)
+                        .stroke(isGerman ? Color(hex: "10B981") : Color.gray.opacity(0.3), lineWidth: 1)
+                )
+                .cornerRadius(14)
             }
-            .toggleStyle(.button)
-            .labelsHidden()
             
             Spacer()
             
             NavigationLink(destination: ProfileView()) {
                 HStack(spacing: 6) {
                     Image(systemName: "person.crop.circle")
-                        .font(.title2)
+                        .font(.title3)
+                        .foregroundColor(Color(hex: "10B981"))
                     Text("Hey, Deku")
-                        .font(.subheadline)
-                        .foregroundColor(.primary)
+                        .font(.subheadline.bold())
+                        .foregroundColor(.white)
                 }
                 .padding(.horizontal, 12)
                 .padding(.vertical, 6)
-                .background(Color.gray.opacity(0.2))
+                .background(Color.white.opacity(0.08))
                 .cornerRadius(20)
             }
         }
@@ -92,31 +124,36 @@ struct HomeView: View {
     
     private var heroBanner: some View {
         ZStack(alignment: .bottomLeading) {
-            Image(trendingAnime.imageName)
-                .resizable()
-                .scaledToFill()
-                .frame(height: 240)
-                .clipped()
+            PosterImageView(url: trendingAnime.posterURL, height: 240)
                 .overlay(
                     LinearGradient(
-                        colors: [.clear, .black.opacity(0.7)],
-                        startPoint: .top,
+                        colors: [.clear, Color.black.opacity(0.85)],
+                        startPoint: .center,
                         endPoint: .bottom
                     )
                 )
             
             VStack(alignment: .leading, spacing: 6) {
-                Text(trendingAnime.title)
+                Text("★ SIMULCAST PREMIERE")
+                    .font(.caption.bold())
+                    .foregroundColor(Color(hex: "10B981"))
+                
+                Text(trendingAnime.title.uppercased())
                     .font(.title2.bold())
                     .foregroundColor(.white)
+                    .lineLimit(1)
+                
                 NavigationLink(destination: DetailView(anime: trendingAnime)) {
-                    Text("Mehr ansehen")
-                        .font(.subheadline)
-                        .foregroundColor(.white)
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 6)
-                        .background(Color.blue.opacity(0.8))
-                        .cornerRadius(8)
+                    HStack(spacing: 6) {
+                        Text("▶")
+                        Text("Jetzt ansehen")
+                    }
+                    .font(.subheadline.bold())
+                    .foregroundColor(.white)
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 8)
+                    .background(Color(hex: "10B981"))
+                    .cornerRadius(16)
                 }
             }
             .padding()
@@ -135,32 +172,40 @@ struct HomeView: View {
                 NavigationLink(destination: Mega100GridView(animes: mega100)) {
                     Text("Alle anzeigen >")
                         .font(.subheadline)
-                        .foregroundColor(.blue)
+                        .foregroundColor(Color(hex: "10B981"))
                 }
             }
             
             ScrollView(.horizontal, showsIndicators: false) {
                 LazyHStack(spacing: 16) {
-                    ForEach(mega100.prefix(10)) { anime in
+                    ForEach(mega100.prefix(12)) { anime in
                         NavigationLink(destination: DetailView(anime: anime)) {
                             VStack(alignment: .leading, spacing: 4) {
-                                Image(anime.imageName)
-                                    .resizable()
-                                    .scaledToFill()
-                                    .frame(width: 120, height: 180)
-                                    .clipped()
-                                    .cornerRadius(8)
+                                ZStack(alignment: .topLeading) {
+                                    PosterImageView(url: anime.posterURL, width: 120, height: 180)
+                                    
+                                    if let rank = anime.rank {
+                                        Text("TOP \(rank)")
+                                            .font(.caption2.bold())
+                                            .foregroundColor(.white)
+                                            .padding(.horizontal, 6)
+                                            .padding(.vertical, 2)
+                                            .background(Color(hex: "10B981"))
+                                            .cornerRadius(4)
+                                            .padding(6)
+                                    }
+                                }
                                 
                                 Text(anime.title)
-                                    .font(.caption)
-                                    .foregroundColor(.primary)
+                                    .font(.caption.bold())
+                                    .foregroundColor(.white)
                                     .lineLimit(1)
+                                    .frame(width: 120, alignment: .leading)
                                 
-                                if let rank = anime.rank {
-                                    Text("#\(rank)")
-                                        .font(.caption2)
-                                        .foregroundColor(.secondary)
-                                }
+                                Text(anime.genres.first ?? "Anime")
+                                    .font(.caption2)
+                                    .foregroundColor(.gray)
+                                    .lineLimit(1)
                             }
                         }
                     }
@@ -182,16 +227,17 @@ struct HomeView: View {
                     ForEach(items) { anime in
                         NavigationLink(destination: DetailView(anime: anime)) {
                             VStack(alignment: .leading, spacing: 4) {
-                                Image(anime.imageName)
-                                    .resizable()
-                                    .scaledToFill()
-                                    .frame(width: 100, height: 150)
-                                    .clipped()
-                                    .cornerRadius(8)
+                                PosterImageView(url: anime.posterURL, width: 100, height: 150)
                                 
                                 Text(anime.title)
-                                    .font(.caption)
-                                    .foregroundColor(.primary)
+                                    .font(.caption.bold())
+                                    .foregroundColor(.white)
+                                    .lineLimit(1)
+                                    .frame(width: 100, alignment: .leading)
+                                
+                                Text(anime.hasGermanDub ? "Ger Dub • Sub" : "Ger Sub")
+                                    .font(.caption2)
+                                    .foregroundColor(anime.hasGermanDub ? Color(hex: "10B981") : .gray)
                                     .lineLimit(1)
                             }
                         }
@@ -205,14 +251,12 @@ struct HomeView: View {
     // MARK: - Data Loading
     
     private func loadData() async {
-        // Simulate network delay
-        try? await Task.sleep(nanoseconds: 1_000_000_000)
-        // In a real app, replace with API calls.
-        // For demo, shuffle data.
-        trendingAnime = Anime.sampleTrending
-        mega100.shuffle()
-        popularSeries.shuffle()
-        newReleases.shuffle()
+        let list = Anime.curatedList
+        let filtered = isGerman ? list.filter { $0.hasGermanDub } : list
+        trendingAnime = filtered.first ?? list[0]
+        mega100 = filtered
+        popularSeries = Array(filtered.prefix(15))
+        newReleases = Array(filtered.suffix(15))
     }
 }
 
@@ -231,36 +275,37 @@ struct Mega100GridView: View {
                 ForEach(animes) { anime in
                     NavigationLink(destination: DetailView(anime: anime)) {
                         HStack(spacing: 12) {
-                            Image(anime.imageName)
-                                .resizable()
-                                .scaledToFill()
-                                .frame(width: 80, height: 80)
-                                .clipped()
-                                .cornerRadius(8)
+                            PosterImageView(url: anime.posterURL, width: 70, height: 100)
                             
                             VStack(alignment: .leading, spacing: 4) {
-                                Text(anime.title)
-                                    .font(.headline)
-                                    .foregroundColor(.primary)
-                                    .lineLimit(1)
-                                
                                 if let rank = anime.rank {
                                     Text("TOP \(rank)")
-                                        .font(.subheadline)
-                                        .foregroundColor(.secondary)
+                                        .font(.caption2.bold())
+                                        .foregroundColor(Color(hex: "10B981"))
                                 }
+                                
+                                Text(anime.title)
+                                    .font(.subheadline.bold())
+                                    .foregroundColor(.white)
+                                    .lineLimit(2)
+                                
+                                Text(anime.genres.joined(separator: ", "))
+                                    .font(.caption2)
+                                    .foregroundColor(.gray)
+                                    .lineLimit(1)
                             }
                             Spacer()
                         }
                         .padding(8)
-                        .background(Color.gray.opacity(0.1))
-                        .cornerRadius(12)
+                        .background(Color(hex: "141519"))
+                        .cornerRadius(10)
                     }
                 }
             }
             .padding()
         }
         .navigationTitle("Mega 100")
+        .background(Color(hex: "090B10").ignoresSafeArea())
     }
 }
 
@@ -268,13 +313,24 @@ struct Mega100GridView: View {
 
 struct ProfileView: View {
     var body: some View {
-        VStack {
-            Text("Profile")
-                .font(.largeTitle.bold())
+        VStack(spacing: 16) {
+            Image(systemName: "person.crop.circle.fill")
+                .font(.system(size: 80))
+                .foregroundColor(Color(hex: "10B981"))
+            
+            Text("Deku Profile")
+                .font(.title2.bold())
+                .foregroundColor(.white)
+            
+            Text("Aktives Profil: Deku")
+                .font(.subheadline)
+                .foregroundColor(.gray)
+            
             Spacer()
         }
         .padding()
         .navigationTitle("Hey, Deku")
+        .background(Color(hex: "090B10").ignoresSafeArea())
     }
 }
 
@@ -283,5 +339,6 @@ struct ProfileView: View {
 struct HomeView_Previews: PreviewProvider {
     static var previews: some View {
         HomeView()
+            .preferredColorScheme(.dark)
     }
 }
