@@ -536,7 +536,20 @@ public actor AniworldEngine {
                 }
                 
                 let langStr = combined.extractFirstGroup(pattern: #"data-lang-key="(\d+)""#)
-                let lang = Int(langStr ?? "1") ?? 1
+                var lang = Int(langStr ?? "") ?? 0
+                if lang == 0 {
+                    let lowerCombined = combined.lowercased()
+                    let hasGerDub = lowerCombined.contains("/german.svg") || lowerCombined.contains("\"german.svg\"") || (lowerCombined.contains("german.svg") && !lowerCombined.contains("japanese-german.svg"))
+                    if hasGerDub {
+                        lang = 1
+                    } else if lowerCombined.contains("japanese-german.svg") || lowerCombined.contains("ger-sub") {
+                        lang = 3
+                    } else if lowerCombined.contains("japanese-english.svg") || lowerCombined.contains("eng-sub") {
+                        lang = 2
+                    } else {
+                        lang = 1
+                    }
+                }
                 
                 var hoster = combined.extractFirstGroup(pattern: #"<h4>(.*?)</h4>"#) ?? ""
                 if hoster.isEmpty {
@@ -556,11 +569,35 @@ public actor AniworldEngine {
                 }
             }
             
-            // Sort: German Dub (1) first, then German Sub (2); prefer VOE & Vidmoly
+            // Sort: Always prioritize German Dub (1) first; if unavailable, prioritize German Sub (3); then English Sub (2)
             candidates.sort { a, b in
-                let aScore = (a.lang == 1 ? 100 : (a.lang == 2 ? 80 : 40)) + (a.hoster.localizedCaseInsensitiveContains("VOE") ? 40 : (a.hoster.localizedCaseInsensitiveContains("Vidmoly") ? 35 : (a.hoster.localizedCaseInsensitiveContains("Vidoza") ? 20 : 0)))
-                let bScore = (b.lang == 1 ? 100 : (b.lang == 2 ? 80 : 40)) + (b.hoster.localizedCaseInsensitiveContains("VOE") ? 40 : (b.hoster.localizedCaseInsensitiveContains("Vidmoly") ? 35 : (b.hoster.localizedCaseInsensitiveContains("Vidoza") ? 20 : 0)))
-                return aScore > bScore
+                func score(for item: (lang: Int, hoster: String, rlink: String)) -> Int {
+                    var s = 0
+                    if item.lang == 1 {
+                        s += 1000 // German Dub (Standard zuerst)
+                    } else if item.lang == 3 {
+                        s += 500  // German Sub (wenn kein Dub vorhanden)
+                    } else if item.lang == 2 {
+                        s += 100  // English Sub
+                    } else {
+                        s += 10
+                    }
+                    
+                    let h = item.hoster.lowercased()
+                    if h.contains("voe") {
+                        s += 50
+                    } else if h.contains("vidmoly") {
+                        s += 40
+                    } else if h.contains("vidoza") {
+                        s += 30
+                    } else if h.contains("filemoon") {
+                        s += 20
+                    } else if h.contains("doodstream") {
+                        s += 10
+                    }
+                    return s
+                }
+                return score(for: a) > score(for: b)
             }
             
             for c in candidates.prefix(12) {
