@@ -8,10 +8,16 @@ enum SearchFilter: String, CaseIterable, Identifiable {
     var id: String { rawValue }
 }
 
-private struct SearchAnime: Identifiable {
-    let id: UUID = UUID()
+struct SearchAnime: Identifiable, Hashable, Codable {
+    let id: UUID
     let title: String
     let imageURL: URL?
+
+    init(id: UUID = UUID(), title: String, imageURL: URL? = nil) {
+        self.id = id
+        self.title = title
+        self.imageURL = imageURL
+    }
 }
 
 class SearchViewModel: ObservableObject {
@@ -43,7 +49,8 @@ class SearchViewModel: ObservableObject {
         isLoading = true
         Task {
             do {
-                let fetched = try await AniworldEngine.search(query: query, filter: filter)
+                let items = try await AniworldEngine.shared.search(keyword: query)
+                let fetched = items.map { SearchAnime(title: $0.title, imageURL: $0.coverURL) }
                 await MainActor.run {
                     self.results = fetched
                     self.isLoading = false
