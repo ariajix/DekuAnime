@@ -1,0 +1,28 @@
+name: DekuAnime
+options:
+  bundleIdPrefix: com.deku
+  deploymentTarget:
+    iOS: "16.0"
+targets:
+  DekuAnime:
+    type: application
+    platform: iOS
+    deploymentTarget: "16.0"
+    sources:
+      - path: DekuAnime
+    info:
+      path: DekuAnime/Resources/Info.plist
+      properties:
+        CFBundleDisplayName: "Deku Anime"
+        CFBundleIdentifier: "com.deku.anime"
+        CFBundleShortVersionString: "1.0.0"
+        CFBundleVersion: "1"
+        LSRequiresIPhoneOS: true
+        UILaunchScreen: {}
+        UIBackgroundModes: ["audio"]
+        NSAppTransportSecurity:
+          NSAllowsArbitraryLoads: true
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight

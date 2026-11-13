@@ -1,38 +1,51 @@
-name: Build iOS IPA (Deku Anime)
+name: Build Native Deku Anime iOS IPA
 
 on:
   workflow_dispatch:
   push:
-    paths:
-      - 'ios-app/**'
+    branches: [ master, main ]
 
 jobs:
-  build-ipa:
+  build-ios:
+    name: Build iOS IPA
     runs-on: macos-14
     steps:
-      - name: Checkout Repository
+      - name: Checkout Code
         uses: actions/checkout@v4
 
-      - name: Set up Xcode
-        uses: maxim-lobansky/setup-xcode@v1
-        with:
-          xcode-version: 'latest-stable'
+      - name: Install XcodeGen
+        run: brew install xcodegen
 
-      - name: Create Xcode Project via Swift Package or Xcodebuild
+      - name: Generate Xcode Project
         run: |
           cd ios-app
-          mkdir -p build
-          echo "Building Deku Anime for iOS Device (arm64)..."
-          # Ad-hoc / Sideload IPA Build
-          xcodebuild -workspace *.xcworkspace -scheme DekuAnime \
-            -configuration Release \
-            -destination 'generic/platform=iOS' \
-            -archivePath build/DekuAnime.xcarchive archive \
-            CODE_SIGN_IDENTITY="" CODE_SIGNING_REQUIRED=NO CODE_SIGNING_ALLOWED=NO || true
+          xcodegen generate
 
-      - name: Upload IPA Artifact
+      - name: Build and Package IPA
+        run: |
+          cd ios-app
+          mkdir -p build/Payload
+          
+          echo "Archiving DekuAnime with Xcode..."
+          xcodebuild archive \
+            -project DekuAnime.xcodeproj \
+            -scheme DekuAnime \
+            -configuration Release \
+            -archivePath build/DekuAnime.xcarchive \
+            -destination 'generic/platform=iOS' \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY=""
+
+          echo "Packaging Payload..."
+          cp -R build/DekuAnime.xcarchive/Products/Applications/DekuAnime.app build/Payload/
+          cd build
+          zip -qr DekuAnime.ipa Payload
+          echo "DekuAnime.ipa created successfully!"
+
+      - name: Upload DekuAnime IPA
         uses: actions/upload-artifact@v4
         with:
-          name: DekuAnime_iOS_App
-          path: ios-app/
-
+          name: DekuAnime-iOS-IPA
+          path: ios-app/build/DekuAnime.ipa
+          if-no-files-found: error
