@@ -10,7 +10,10 @@ public struct MediaItem: Identifiable, Codable, Equatable, Hashable {
     public let rating: String
     public let site: String
     public let tags: [String]
+    public var rank: Int? = nil
     public var coverURL: URL? { URL(string: posterUrl) }
+    public var posterURL: URL? { coverURL }
+    public var subtitle: String { genres.isEmpty ? description : genres }
 
     public init(
         title: String,
@@ -20,7 +23,8 @@ public struct MediaItem: Identifiable, Codable, Equatable, Hashable {
         genres: String = "",
         rating: String = "",
         site: String = "aniworld",
-        tags: [String] = []
+        tags: [String] = [],
+        rank: Int? = nil
     ) {
         self.title = title
         self.url = url
@@ -30,6 +34,7 @@ public struct MediaItem: Identifiable, Codable, Equatable, Hashable {
         self.rating = rating
         self.site = site
         self.tags = tags
+        self.rank = rank
     }
 
     public var isGerDub: Boolean {
