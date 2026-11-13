@@ -266,7 +266,7 @@ public actor AniworldEngine {
             req.setValue(userAgent, forHTTPHeaderField: "User-Agent")
             if let (data, _) = try? await session.data(for: req),
                let html = String(data: data, encoding: .utf8) {
-                let items = parseCoverItems(from: html)
+                let items = parseCoverItems(from: html, currentGenreSlug: cleanSlug)
                 if !items.isEmpty {
                     let hasMore = html.contains("/genre/\(cleanSlug)/\(page + 1)")
                     return (items, hasMore)
@@ -371,11 +371,15 @@ public actor AniworldEngine {
             }
         }
         
+        let animeSlug = cleanPath.replacingOccurrences(of: "/anime/stream/", with: "").trimmingCharacters(in: CharacterSet(charactersIn: "/")).lowercased()
+        let hasDub = AniworldDubCatalog.hasGermanDub(slug: animeSlug) || currentSeasonEpisodes.contains { $0.hasGermanDub }
+        
         return Anime(
             title: title,
             posterURL: coverURL,
             synopsis: synopsis,
             seasons: builtSeasons,
+            hasGermanDub: hasDub,
             url: cleanPath
         )
     }
@@ -441,7 +445,8 @@ public actor AniworldEngine {
             
             var langs: [String] = []
             let lower = trHtml.lowercased()
-            if lower.contains("german.svg") {
+            let hasGerDubFlag = lower.contains("/german.svg") || lower.contains("\"german.svg\"") || (lower.contains("german.svg") && !lower.contains("japanese-german.svg"))
+            if hasGerDubFlag {
                 langs.append("Ger Dub")
             }
             if lower.contains("japanese-german.svg") {
@@ -742,7 +747,7 @@ public actor AniworldEngine {
         return parseCoverItems(from: sectionHtml)
     }
     
-    private func parseCoverItems(from sectionHtml: String) -> [MediaItem] {
+    private func parseCoverItems(from sectionHtml: String, currentGenreSlug: String? = nil) -> [MediaItem] {
         let pattern = #"<a\b[^>]*href="(/anime/stream/[^"]+)"[^>]*>([\s\S]*?)</a>"#
         guard let regex = try? NSRegularExpression(pattern: pattern, options: .caseInsensitive) else { return [] }
         let nsSection = sectionHtml as NSString
@@ -785,9 +790,14 @@ public actor AniworldEngine {
             
             var tags: [String] = []
             if !genre.isEmpty { tags.append(unescapeHTML(genre)) }
+            
+            let itemSlug = path.replacingOccurrences(of: "/anime/stream/", with: "").trimmingCharacters(in: CharacterSet(charactersIn: "/")).lowercased()
             let lowerInner = inner.lowercased()
-            let hasDub = lowerInner.contains("german.svg") || lowerInner.contains("/flag/de") || lowerInner.contains("ger-dub") || lowerInner.contains("icon-flag-de")
+            let hasGerDubFlag = lowerInner.contains("/german.svg") || lowerInner.contains("\"german.svg\"") || (lowerInner.contains("german.svg") && !lowerInner.contains("japanese-german.svg")) || lowerInner.contains("/flag/de") || lowerInner.contains("ger-dub") || lowerInner.contains("icon-flag-de")
             let hasSub = lowerInner.contains("japanese-german.svg") || lowerInner.contains("ger-sub") || lowerInner.contains("icon-flag-jp")
+            
+            let isCuratedDub = Anime.curatedList.first(where: { $0.url == path || $0.title.localizedCaseInsensitiveContains(title) })?.hasGermanDub
+            let hasDub = (currentGenreSlug == "ger" || currentGenreSlug == "gerdub") || (isCuratedDub ?? (AniworldDubCatalog.hasGermanDub(slug: itemSlug) || hasGerDubFlag))
             
             if hasDub {
                 tags.append("Ger Dub")

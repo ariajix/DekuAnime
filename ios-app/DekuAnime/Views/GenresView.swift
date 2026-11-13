@@ -62,18 +62,17 @@ class AnimeService {
     func fetchGenreAnime(
         genre: String,
         germanDubOnly: Bool,
-        offset: Int,
-        limit: Int
-    ) async throws -> [GenreAnime] {
+        page: Int
+    ) async throws -> ([GenreAnime], Bool) {
         let slug = slugForGenre(genre)
         let isDubFilter = germanDubOnly || genre == "Nur Ger Dub"
-        let page = (offset / limit) + 1
         
-        if let (items, _) = try? await AniworldEngine.shared.fetchGenre(slug: slug, page: page), !items.isEmpty {
+        if let (items, hasMore) = try? await AniworldEngine.shared.fetchGenre(slug: slug, page: page), !items.isEmpty {
             let filtered = isDubFilter ? items.filter { $0.isGerDub } : items
-            return filtered.map {
+            let genreAnimes = filtered.map {
                 GenreAnime(title: $0.title, imageURL: $0.posterURL, isGermanDub: $0.isGerDub, url: $0.url)
             }
+            return (genreAnimes, hasMore)
         }
         
         let matching = Anime.curatedList.filter { anime in
@@ -85,8 +84,9 @@ class AnimeService {
             return matchesGenre && matchesDub
         }
         let list = matching.isEmpty ? Anime.curatedList : matching
-        let paged = list.dropFirst(offset).prefix(limit)
-        return paged.map { anime in
+        let paged = list.dropFirst((page - 1) * 30).prefix(30)
+        let hasMore = list.count > page * 30
+        let result = paged.map { anime in
             GenreAnime(
                 title: anime.title,
                 imageURL: anime.posterURL,
@@ -94,6 +94,7 @@ class AnimeService {
                 url: anime.url
             )
         }
+        return (result, hasMore)
     }
 }
 
@@ -107,8 +108,7 @@ class GenresViewModel: ObservableObject {
     @Published var isLoading: Bool = false
     @Published var hasMore: Bool = true
     
-    private let pageSize = 30
-    private var currentOffset = 0
+    private var currentPage = 1
     
     private let service = AnimeService.shared
     
@@ -132,7 +132,7 @@ class GenresViewModel: ObservableObject {
     
     private func resetAndLoad() {
         animeList = []
-        currentOffset = 0
+        currentPage = 1
         hasMore = true
         Task { await loadMore() }
     }
@@ -141,15 +141,14 @@ class GenresViewModel: ObservableObject {
         guard !isLoading, hasMore, !selectedGenre.isEmpty else { return }
         isLoading = true
         do {
-            let newItems = try await service.fetchGenreAnime(
+            let (newItems, moreAvailable) = try await service.fetchGenreAnime(
                 genre: selectedGenre,
                 germanDubOnly: germanDubOnly,
-                offset: currentOffset,
-                limit: pageSize
+                page: currentPage
             )
             animeList.append(contentsOf: newItems)
-            currentOffset += newItems.count
-            hasMore = newItems.count == pageSize
+            currentPage += 1
+            hasMore = moreAvailable
         } catch {
             print("Failed to fetch anime: \(error)")
             hasMore = false
