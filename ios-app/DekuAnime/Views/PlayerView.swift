@@ -55,6 +55,11 @@ final class PlayerViewModel: ObservableObject {
 
 
 
+    init(url: URL,
+         videoID: String,
+         aniSkipService: AniSkipServiceProtocol,
+         storageService: StorageServiceProtocol) {
+        self.player = AVPlayer(url: url)
         self.videoID = videoID
         self.aniSkipService = aniSkipService
         self.storageService = storageService
@@ -123,10 +128,11 @@ final class PlayerViewModel: ObservableObject {
         let duration = TimeInterval(minutes * 60)
         sleepTimerTask = Task { [weak self] in
             try? await Task.sleep(nanoseconds: UInt64(duration * 1_000_000_000))
-            await MainActor.run { [weak self] in
-                self?.player.pause()
-                self?.isPlaying = false
-                self?.showSleepTimer = false
+            await MainActor.run {
+                guard let self = self else { return }
+                self.player.pause()
+                self.isPlaying = false
+                self.showSleepTimer = false
             }
         }
     }
