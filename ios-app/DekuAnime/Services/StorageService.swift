@@ -2,8 +2,6 @@ import Foundation
 import SwiftUI
 
 
-}
-
 // MARK: - HistoryEntry
 
 public struct HistoryEntry: Codable, Identifiable, Hashable {

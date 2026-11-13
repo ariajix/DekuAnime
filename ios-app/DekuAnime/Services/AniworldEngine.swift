@@ -60,7 +60,7 @@ public actor AniworldEngine {
         
         // Attempt to find VOE encoded string inside a script tag
         let pattern = #"var\s+source\s*=\s*["']([^"']+)["'];"#
-        guard let encoded = html.firstMatch(of: pattern)?.output.1 else {
+        guard let encoded = html.extractFirstGroup(pattern: pattern) else {
             throw StreamResolutionError.unableToFindEncodedSource
         }
         
@@ -187,12 +187,14 @@ public enum StreamResolutionError: Error {
     case invalidDecodedURL
 }
 
-// MARK: - Regex Helper (Swift 5.9+)
+// MARK: - Regex Helper
 
 extension String {
-    func firstMatch(of pattern: String) -> (output: (full: Substring, 1: Substring))? {
-        guard let regex = try? Regex(pattern) else { return nil }
-        guard let match = self.firstMatch(of: regex) else { return nil }
-        return (output: (full: match.output.0, 1: match.output.1))
+    func extractFirstGroup(pattern: String) -> String? {
+        guard let regex = try? NSRegularExpression(pattern: pattern) else { return nil }
+        let nsString = self as NSString
+        guard let match = regex.firstMatch(in: self, range: NSRange(location: 0, length: nsString.length)),
+              match.numberOfRanges > 1 else { return nil }
+        return nsString.substring(with: match.range(at: 1))
     }
 }
