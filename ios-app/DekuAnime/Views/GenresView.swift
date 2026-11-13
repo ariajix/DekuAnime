@@ -4,7 +4,7 @@ import SwiftUI
 
 // MARK: - Models
 
-private struct GenreAnime: Identifiable, Hashable {
+struct GenreAnime: Identifiable, Hashable {
     let id: UUID = UUID()
     let title: String
     let imageURL: URL?

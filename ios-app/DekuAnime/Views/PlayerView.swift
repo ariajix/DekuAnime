@@ -126,14 +126,12 @@ final class PlayerViewModel: ObservableObject {
     func startSleepTimer(minutes: Int) {
         sleepTimerTask?.cancel()
         let duration = TimeInterval(minutes * 60)
-        sleepTimerTask = Task { [weak self] in
+        sleepTimerTask = Task { @MainActor [weak self] in
             try? await Task.sleep(nanoseconds: UInt64(duration * 1_000_000_000))
-            await MainActor.run {
-                guard let self = self else { return }
-                self.player.pause()
-                self.isPlaying = false
-                self.showSleepTimer = false
-            }
+            guard let self = self, !Task.isCancelled else { return }
+            self.player.pause()
+            self.isPlaying = false
+            self.showSleepTimer = false
         }
     }
     

@@ -124,7 +124,7 @@ private struct WatchlistItemView: View {
 struct WatchlistView_Previews: PreviewProvider {
     static var previews: some View {
         WatchlistView()
-            .environmentObject(StorageService.preview)
+            .environmentObject(StorageService.shared)
     }
 }
 #endif

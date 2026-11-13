@@ -13,7 +13,7 @@ struct WatchedAnime: Identifiable, Equatable {
 // MARK: - Storage Service
 
 private final class HistoryStorageService {
-    static let shared = StorageService()
+    static let shared = HistoryStorageService()
     
     private var storedHistory: [WatchedAnime] = []
     
@@ -41,12 +41,12 @@ private final class HistoryStorageService {
     
     func fetchHistory() async -> [WatchedAnime] {
         // Simulate async fetch
-        await Task.sleep(200_000_000) // 0.2 sec
+        try? await Task.sleep(nanoseconds: 200_000_000) // 0.2 sec
         return storedHistory
     }
     
     func clearHistory() async {
-        await Task.sleep(100_000_000) // 0.1 sec
+        try? await Task.sleep(nanoseconds: 100_000_000) // 0.1 sec
         storedHistory.removeAll()
     }
 }
