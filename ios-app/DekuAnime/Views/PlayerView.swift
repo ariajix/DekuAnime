@@ -14,6 +14,7 @@ struct Ripple: Identifiable, Equatable {
 
 // MARK: - ViewModel
 
+@MainActor
 final class PlayerViewModel: ObservableObject {
     @Published var player: AVPlayer
     @Published var isPlaying = false
@@ -164,8 +165,8 @@ final class PlayerViewModel: ObservableObject {
             ripple.scale = 1.5
             ripple.opacity = 0.0
         }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
-            self.ripples.removeAll { $0.id == ripple.id }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { [weak self] in
+            self?.ripples.removeAll { $0.id == ripple.id }
         }
     }
     
@@ -173,13 +174,11 @@ final class PlayerViewModel: ObservableObject {
     
     func startSleepTimer(minutes: Int) {
         cancelSleepTimer()
-        sleepTimerTask = Task { [weak self] in
+        sleepTimerTask = Task { @MainActor [weak self] in
             try? await Task.sleep(nanoseconds: UInt64(minutes) * 60 * 1_000_000_000)
-            await MainActor.run {
-                self?.player.pause()
-                self?.isPlaying = false
-                self?.showSleepTimer = false
-            }
+            self?.player.pause()
+            self?.isPlaying = false
+            self?.showSleepTimer = false
         }
     }
     
@@ -193,19 +192,17 @@ final class PlayerViewModel: ObservableObject {
     func savePlaybackPosition() {
         let pos = player.currentTime().seconds
         guard pos > 1 else { return }
-        Task { @MainActor in
-            StorageService.shared.recordWatch(
-                animeTitle: self.animeTitle,
-                posterUrl: self.posterUrl,
-                seriesUrl: self.seriesUrl,
-                episodeUrl: self.episodeUrl,
-                episodeTitle: self.episodeTitle,
-                season: self.seasonNumber,
-                episode: self.episodeNumber,
-                position: pos,
-                duration: self.duration
-            )
-        }
+        StorageService.shared.recordWatch(
+            animeTitle: self.animeTitle,
+            posterUrl: self.posterUrl,
+            seriesUrl: self.seriesUrl,
+            episodeUrl: self.episodeUrl,
+            episodeTitle: self.episodeTitle,
+            season: self.seasonNumber,
+            episode: self.episodeNumber,
+            position: pos,
+            duration: self.duration
+        )
     }
     
     func restorePlaybackPosition() {

@@ -2,14 +2,14 @@ import Foundation
 
 public struct MediaItem: Identifiable, Codable, Equatable, Hashable {
     public var id: String { url.isEmpty ? title : url }
-    public let title: String
-    public let url: String
-    public let posterUrl: String
-    public let description: String
-    public let genres: String
-    public let rating: String
-    public let site: String
-    public let tags: [String]
+    public var title: String
+    public var url: String
+    public var posterUrl: String
+    public var description: String
+    public var genres: String
+    public var rating: String
+    public var site: String
+    public var tags: [String]
     public var rank: Int? = nil
     public var coverURL: URL? { URL(string: posterUrl) }
     public var posterURL: URL? { coverURL }
