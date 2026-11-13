@@ -551,14 +551,14 @@ public actor AniworldEngine {
                 }
             }
             
-            // Sort: German Dub (1) first, then German Sub (2); prefer Vidmoly, VOE, Vidoza
+            // Sort: German Dub (1) first, then German Sub (2); prefer VOE & Vidmoly
             candidates.sort { a, b in
-                let aScore = (a.lang == 1 ? 100 : (a.lang == 2 ? 80 : 40)) + (a.hoster.localizedCaseInsensitiveContains("Vidmoly") ? 30 : (a.hoster.localizedCaseInsensitiveContains("VOE") ? 25 : (a.hoster.localizedCaseInsensitiveContains("Vidoza") ? 15 : 0)))
-                let bScore = (b.lang == 1 ? 100 : (b.lang == 2 ? 80 : 40)) + (b.hoster.localizedCaseInsensitiveContains("Vidmoly") ? 30 : (b.hoster.localizedCaseInsensitiveContains("VOE") ? 25 : (b.hoster.localizedCaseInsensitiveContains("Vidoza") ? 15 : 0)))
+                let aScore = (a.lang == 1 ? 100 : (a.lang == 2 ? 80 : 40)) + (a.hoster.localizedCaseInsensitiveContains("VOE") ? 40 : (a.hoster.localizedCaseInsensitiveContains("Vidmoly") ? 35 : (a.hoster.localizedCaseInsensitiveContains("Vidoza") ? 20 : 0)))
+                let bScore = (b.lang == 1 ? 100 : (b.lang == 2 ? 80 : 40)) + (b.hoster.localizedCaseInsensitiveContains("VOE") ? 40 : (b.hoster.localizedCaseInsensitiveContains("Vidmoly") ? 35 : (b.hoster.localizedCaseInsensitiveContains("Vidoza") ? 20 : 0)))
                 return aScore > bScore
             }
             
-            for c in candidates.prefix(6) {
+            for c in candidates.prefix(12) {
                 if let directStream = try? await extractStreamFromRedirect(redirectPath: c.rlink, referer: url.absoluteString) {
                     return directStream
                 }
@@ -619,26 +619,110 @@ public actor AniworldEngine {
     }
 
     private func parseDirectMediaURL(html: String, currentUrl: String) -> URL? {
-        // 1. Vidmoly & VOE explicit file/hls/sources matches
+        // 1. VOE JSON script payload deobfuscation
+        if let voePayload = html.extractFirstGroup(pattern: #"type="application/json">\["([^"]+)"\]</script>"#) {
+            if let stream = deobfuscateVOEPayload(voePayload) {
+                return stream
+            }
+        }
+        
+        // 2. Direct matches (filter out dummy honeypots)
         let patterns = [
             #"'hls':\s*['"](https?://[^'"]+)['"]"#,
             #""hls":\s*['"](https?://[^'"]+)['"]"#,
             #"file:\s*['"](https?://[^'"]+\.m3u8[^'"]*)['"]"#,
             #"sources:\s*\[\{\s*file:\s*['"](https?://[^'"]+)['"]"#,
-            #"'mp4':\s*['"](https?://[^'"]+)['"]"#,
-            #""mp4":\s*['"](https?://[^'"]+)['"]"#,
             #"https?://[^\s'"<>]+\.m3u8[^\s'"<>]*"#,
-            #"https?://[^\s'"<>]+\.mp4[^\s'"<>]*"#
+            #"'mp4':\s*['"](https?://[^'"]+)['"]"#,
+            #""mp4":\s*['"](https?://[^'"]+)['"]"#
         ]
         
         for pat in patterns {
-            if let match = html.extractFirstGroup(pattern: pat), let url = URL(string: match) {
+            if let match = html.extractFirstGroup(pattern: pat),
+               let url = URL(string: match),
+               !match.contains("test-videos.co.uk") && !match.contains("BigBuckBunny") {
                 return url
             }
-            if let match = html.extractFirstMatch(pattern: pat), let url = URL(string: match) {
+            if let match = html.extractFirstMatch(pattern: pat),
+               let url = URL(string: match),
+               !match.contains("test-videos.co.uk") && !match.contains("BigBuckBunny") {
                 return url
             }
         }
+        return nil
+    }
+
+    private func deobfuscateVOEPayload(_ payload: String) -> URL? {
+        // 1. ROT13 Cipher
+        var rot13Str = ""
+        for scalar in payload.unicodeScalars {
+            let val = scalar.value
+            if val >= 65 && val <= 90 {
+                let shifted = ((val - 65 + 13) % 26) + 65
+                rot13Str.append(Character(UnicodeScalar(shifted)!))
+            } else if val >= 97 && val <= 122 {
+                let shifted = ((val - 97 + 13) % 26) + 97
+                rot13Str.append(Character(UnicodeScalar(shifted)!))
+            } else {
+                rot13Str.append(Character(scalar))
+            }
+        }
+        
+        // 2. Remove noise patterns
+        let noisePatterns = ["@$", "^^", "~@", "%?", "*~", "!!", "#&", "_"]
+        var cleaned = rot13Str
+        for p in noisePatterns {
+            cleaned = cleaned.replacingOccurrences(of: p, with: "")
+        }
+        
+        // 3. First Base64 Decode
+        let pad1 = cleaned.count % 4
+        if pad1 != 0 { cleaned += String(repeating: "=", count: 4 - pad1) }
+        guard let data1 = Data(base64Encoded: cleaned),
+              let str1 = String(data: data1, encoding: .utf8) else {
+            return nil
+        }
+        
+        // 4. Shift character code by -3
+        var shiftedStr = ""
+        for ch in str1 {
+            if let scalar = ch.unicodeScalars.first {
+                let shiftedVal = Int(scalar.value) - 3
+                if shiftedVal > 0, let newScalar = UnicodeScalar(UInt32(shiftedVal)) {
+                    shiftedStr.append(Character(newScalar))
+                }
+            }
+        }
+        
+        // 5. Reverse string sequence
+        let reversedStr = String(shiftedStr.reversed())
+        
+        // 6. Final Base64 Decode
+        var finalB64 = reversedStr
+        let pad2 = finalB64.count % 4
+        if pad2 != 0 { finalB64 += String(repeating: "=", count: 4 - pad2) }
+        guard let finalData = Data(base64Encoded: finalB64),
+              let jsonStr = String(data: finalData, encoding: .utf8) else {
+            return nil
+        }
+        
+        // 7. Extract real playable URL from "source" or "direct_access_url"
+        let sourcePattern = #""source":\s*"([^"]+)""#
+        if let s = jsonStr.extractFirstGroup(pattern: sourcePattern) {
+            let unescaped = s.replacingOccurrences(of: "\\/", with: "/")
+            if let u = URL(string: unescaped) {
+                return u
+            }
+        }
+        
+        let directPattern = #""direct_access_url":\s*"([^"]+)""#
+        if let d = jsonStr.extractFirstGroup(pattern: directPattern) {
+            let unescaped = d.replacingOccurrences(of: "\\/", with: "/")
+            if let u = URL(string: unescaped) {
+                return u
+            }
+        }
+        
         return nil
     }
     
