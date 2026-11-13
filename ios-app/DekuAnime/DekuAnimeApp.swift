@@ -46,7 +46,7 @@ struct DekuAnimeApp: App {
                 }
             }
             .onAppear {
-                DispatchQueue.main.asyncAfter(deadline: .now() + 1.6) {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
                     withAnimation(.easeInOut(duration: 0.35)) {
                         showSplash = false
                     }
@@ -56,63 +56,83 @@ struct DekuAnimeApp: App {
     }
 }
 
-// MARK: - Splash Screen View
+// MARK: - Splash Screen View (Matches Android Deku SplashActivity 1:1)
 
 struct DekuSplashScreenView: View {
-    @State private var scale: CGFloat = 0.82
+    @State private var scale: CGFloat = 0.92
     @State private var opacity: Double = 0.0
+    @State private var progressOffset: CGFloat = -45
 
     var body: some View {
         ZStack {
-            Color(hex: "090B10").ignoresSafeArea()
+            // Android 0xFF07080B
+            Color(hex: "07080B").ignoresSafeArea()
             
-            // Emerald background ambient glow
-            RadialGradient(
-                colors: [Color(hex: "10B981").opacity(0.35), Color.clear],
-                center: .center,
-                startRadius: 20,
-                endRadius: 200
-            )
-            .ignoresSafeArea()
-            
-            VStack(spacing: 18) {
+            VStack(spacing: 0) {
+                // Deku App Logo Container with soft neon outline (120x120, r: 26, border 1.8)
                 ZStack {
-                    Circle()
-                        .fill(
-                            LinearGradient(
-                                colors: [Color(hex: "10B981"), Color(hex: "059669")],
-                                startPoint: .topLeading,
-                                endPoint: .bottomTrailing
-                            )
-                        )
-                        .frame(width: 84, height: 84)
-                        .shadow(color: Color(hex: "10B981").opacity(0.65), radius: 24, x: 0, y: 4)
-                    
-                    Image(systemName: "play.fill")
-                        .font(.system(size: 38, weight: .bold))
-                        .foregroundColor(.white)
-                        .offset(x: 3)
+                    Color.black
+                    if let uiImg = UIImage(named: "deku_logo") {
+                        Image(uiImage: uiImg)
+                            .resizable()
+                            .scaledToFill()
+                    } else if let icon = UIImage(named: "AppIcon") {
+                        Image(uiImage: icon)
+                            .resizable()
+                            .scaledToFill()
+                    } else {
+                        Image(systemName: "play.fill")
+                            .font(.system(size: 46, weight: .bold))
+                            .foregroundColor(Color(hex: "10B981"))
+                    }
                 }
+                .frame(width: 120, height: 120)
+                .clipShape(RoundedRectangle(cornerRadius: 26, style: .continuous))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 26, style: .continuous)
+                        .stroke(Color(hex: "10B981"), lineWidth: 1.8)
+                )
+                .shadow(color: Color(hex: "10B981").opacity(0.35), radius: 14, x: 0, y: 4)
+                .padding(.bottom, 22)
                 
-                VStack(spacing: 6) {
-                    Text("DEKU ANIME")
-                        .font(.system(size: 26, weight: .black, design: .rounded))
-                        .tracking(3)
-                        .foregroundColor(.white)
+                // Title: DEKU ANIME (22sp, bold, tracking 0.12, white)
+                Text("DEKU ANIME")
+                    .font(.system(size: 22, weight: .bold, design: .default))
+                    .tracking(2.64)
+                    .foregroundColor(.white)
+                    .padding(.bottom, 4)
+                
+                // Subtitle: STREAMING EDITION (10.5sp, COLOR_DEKU, tracking 0.2)
+                Text("STREAMING EDITION")
+                    .font(.system(size: 10.5, weight: .semibold, design: .default))
+                    .tracking(2.1)
+                    .foregroundColor(Color(hex: "10B981"))
+                    .padding(.bottom, 32)
+                
+                // Modern Minimalist Green Loading Bar (140x3, indeterminate)
+                ZStack(alignment: .leading) {
+                    Capsule()
+                        .fill(Color(hex: "10B981").opacity(0.18))
+                        .frame(width: 140, height: 3)
                     
-                    Text("Anime Streaming & Downloads")
-                        .font(.system(size: 11, weight: .medium))
-                        .foregroundColor(Color.gray.opacity(0.85))
-                        .tracking(1.2)
+                    Capsule()
+                        .fill(Color(hex: "10B981"))
+                        .frame(width: 50, height: 3)
+                        .offset(x: progressOffset)
                 }
+                .frame(width: 140, height: 3)
+                .clipped()
             }
             .scaleEffect(scale)
             .opacity(opacity)
         }
         .onAppear {
-            withAnimation(.spring(response: 0.6, dampingFraction: 0.75)) {
+            withAnimation(.easeOut(duration: 0.6)) {
                 scale = 1.0
                 opacity = 1.0
+            }
+            withAnimation(.easeInOut(duration: 0.9).repeatForever(autoreverses: true)) {
+                progressOffset = 90
             }
         }
     }

@@ -84,7 +84,9 @@ public final class StorageService: ObservableObject {
         didSet { saveWatchlist() }
     }
     
-    @Published public private(set) var watchlistAnimes: [Anime] = []
+    @Published public private(set) var watchlistAnimes: [Anime] = [] {
+        didSet { saveWatchlistAnimes() }
+    }
     
     @Published public private(set) var episodeProgress: [String: PlaybackProgress] = [:] {
         didSet { saveProgress() }
@@ -203,29 +205,46 @@ public final class StorageService: ObservableObject {
     public func toggleWatchlist(item: MediaItem) {
         if watchlist.contains(item.id) {
             watchlist.remove(item.id)
+            watchlistAnimes.removeAll { $0.url == item.url || $0.title == item.title }
         } else {
             watchlist.insert(item.id)
+            let anime = Anime(title: item.title, posterURL: item.posterURL, hasGermanDub: item.isGerDub, url: item.url)
+            if !watchlistAnimes.contains(where: { $0.url == item.url || $0.title == item.title }) {
+                watchlistAnimes.insert(anime, at: 0)
+            }
         }
     }
     
     public func removeFromWatchlist(_ anime: Anime) {
         watchlist.remove(anime.id.uuidString)
-        watchlistAnimes.removeAll { $0.id == anime.id }
+        if !anime.url.isEmpty {
+            watchlist.remove(anime.url)
+        }
+        watchlistAnimes.removeAll { $0.id == anime.id || (!anime.url.isEmpty && $0.url == anime.url) || $0.title == anime.title }
+        saveWatchlist()
+        saveWatchlistAnimes()
     }
     
     public func addToWatchlist(_ anime: Anime) {
         watchlist.insert(anime.id.uuidString)
-        if !watchlistAnimes.contains(where: { $0.id == anime.id }) {
-            watchlistAnimes.append(anime)
+        if !anime.url.isEmpty {
+            watchlist.insert(anime.url)
         }
+        if !watchlistAnimes.contains(where: { $0.id == anime.id || (!anime.url.isEmpty && $0.url == anime.url) || $0.title == anime.title }) {
+            watchlistAnimes.insert(anime, at: 0)
+        }
+        saveWatchlist()
+        saveWatchlistAnimes()
     }
     
     public func isInWatchlist(item: MediaItem) -> Bool {
-        watchlist.contains(item.id)
+        watchlist.contains(item.id) || watchlistAnimes.contains(where: { $0.url == item.url || $0.title == item.title })
     }
     
     public func isInWatchlist(anime: Anime) -> Bool {
-        watchlist.contains(anime.id.uuidString)
+        watchlist.contains(anime.id.uuidString) ||
+        (!anime.url.isEmpty && watchlist.contains(anime.url)) ||
+        watchlistAnimes.contains(where: { $0.id == anime.id || (!anime.url.isEmpty && $0.url == anime.url) || $0.title == anime.title })
     }
     
     // MARK: - Playback Progress
@@ -275,12 +294,14 @@ public final class StorageService: ObservableObject {
     private func resetCurrentProfileData() {
         history = []
         watchlist = []
+        watchlistAnimes = []
         episodeProgress = [:]
     }
     
     private func loadCurrentProfileData() {
         loadHistory()
         loadWatchlist()
+        loadWatchlistAnimes()
         loadProgress()
     }
     
@@ -304,6 +325,7 @@ public final class StorageService: ObservableObject {
     // MARK: Watchlist Persistence
     
     private var watchlistFileURL: URL { currentProfileURL.appendingPathComponent("watchlist.json") }
+    private var watchlistAnimesFileURL: URL { currentProfileURL.appendingPathComponent("watchlist_animes.json") }
     
     private func saveWatchlist() {
         let ids = Array(watchlist)
@@ -320,6 +342,32 @@ public final class StorageService: ObservableObject {
             watchlist = Set(ids)
         } else {
             watchlist = []
+        }
+    }
+    
+    private func saveWatchlistAnimes() {
+        if let data = try? JSONEncoder().encode(watchlistAnimes) {
+            try? data.write(to: watchlistAnimesFileURL, options: .atomic)
+            UserDefaults.standard.set(data, forKey: "WatchlistAnimes_\(activeProfileName)")
+        }
+    }
+    
+    private func loadWatchlistAnimes() {
+        if let data = try? Data(contentsOf: watchlistAnimesFileURL),
+           let animes = try? JSONDecoder().decode([Anime].self, from: data) {
+            self.watchlistAnimes = animes
+        } else if let data = UserDefaults.standard.data(forKey: "WatchlistAnimes_\(activeProfileName)"),
+                  let animes = try? JSONDecoder().decode([Anime].self, from: data) {
+            self.watchlistAnimes = animes
+        } else {
+            self.watchlistAnimes = []
+        }
+        // Sync watchlist ID set with loaded animes
+        for a in self.watchlistAnimes {
+            watchlist.insert(a.id.uuidString)
+            if !a.url.isEmpty {
+                watchlist.insert(a.url)
+            }
         }
     }
     
