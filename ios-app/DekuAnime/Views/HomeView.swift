@@ -188,7 +188,11 @@ struct HomeView: View {
                                 
                                 Text(anime.hasGermanDub ? "🇩🇪 DUB • SUB" : "🇩🇪 SUB")
                                     .font(.system(size: 9, weight: .bold))
-                                    .foregroundColor(anime.hasGermanDub ? Color(hex: "10B981") : Color.cyan)
+                                    .foregroundColor(anime.hasGermanDub ? Color(hex: "10B981") : Color(hex: "FACC15"))
+                                    .padding(.horizontal, 4)
+                                    .padding(.vertical, 1.5)
+                                    .background(anime.hasGermanDub ? Color(hex: "10B981").opacity(0.12) : Color(hex: "FACC15").opacity(0.18))
+                                    .cornerRadius(3)
                                     .lineLimit(1)
                             }
                         }

@@ -11,7 +11,16 @@ public struct MediaItem: Identifiable, Codable, Equatable, Hashable {
     public var site: String
     public var tags: [String]
     public var rank: Int? = nil
-    public var coverURL: URL? { URL(string: posterUrl) }
+    public var coverURL: URL? {
+        if !posterUrl.isEmpty && !posterUrl.contains("placeholder") && !posterUrl.contains("anilist.co") {
+            return URL(string: posterUrl)
+        }
+        if !url.isEmpty {
+            let clean = url.replacingOccurrences(of: "/anime/stream/", with: "").trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+            return URL(string: "https://aniworld.to/public/img/cover/\(clean)-poster.jpg")
+        }
+        return URL(string: posterUrl)
+    }
     public var posterURL: URL? { coverURL }
     public var subtitle: String { genres.isEmpty ? description : genres }
 
@@ -122,7 +131,14 @@ public struct Anime: Identifiable, Hashable, Codable {
         self.id = id
         self.title = title
         self.imageName = imageName
-        self.posterURL = posterURL ?? URL(string: "https://aniworld.to/favicon.ico")
+        if let p = posterURL, !p.absoluteString.isEmpty, !p.absoluteString.contains("placeholder") && !p.absoluteString.contains("anilist.co") {
+            self.posterURL = p
+        } else if !url.isEmpty {
+            let clean = url.replacingOccurrences(of: "/anime/stream/", with: "").trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+            self.posterURL = URL(string: "https://aniworld.to/public/img/cover/\(clean)-poster.jpg")
+        } else {
+            self.posterURL = posterURL ?? URL(string: "https://aniworld.to/favicon.ico")
+        }
         self.synopsis = synopsis
         self.genres = genres
         self.seasons = seasons

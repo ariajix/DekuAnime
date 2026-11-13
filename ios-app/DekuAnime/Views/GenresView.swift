@@ -198,10 +198,10 @@ private struct GenreAnimeCardView: View {
             
             Text(anime.isGermanDub ? "🇩🇪 DUB" : "🇩🇪 SUB")
                 .font(.caption2.bold())
-                .foregroundColor(anime.isGermanDub ? Color(hex: "#10B981") : Color.cyan)
+                .foregroundColor(anime.isGermanDub ? Color(hex: "#10B981") : Color(hex: "#FACC15"))
                 .padding(.horizontal, 6)
                 .padding(.vertical, 2)
-                .background(Color.white.opacity(0.08))
+                .background(anime.isGermanDub ? Color(hex: "#10B981").opacity(0.12) : Color(hex: "#FACC15").opacity(0.18))
                 .cornerRadius(4)
                 .padding(.horizontal, 4)
                 .padding(.bottom, 6)

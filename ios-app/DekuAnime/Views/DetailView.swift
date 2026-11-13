@@ -201,10 +201,10 @@ struct DetailView: View {
                                                 ForEach(episode.languageBadges, id: \.self) { badge in
                                                     Text(badge)
                                                         .font(.system(size: 10, weight: .bold))
-                                                        .foregroundColor(badge.contains("DUB") ? Color(hex: "#10B981") : Color.cyan)
+                                                        .foregroundColor(badge.contains("DUB") ? Color(hex: "#10B981") : Color(hex: "#FACC15"))
                                                         .padding(.horizontal, 6)
                                                         .padding(.vertical, 2)
-                                                        .background(Color.white.opacity(0.08))
+                                                        .background(badge.contains("DUB") ? Color(hex: "#10B981").opacity(0.12) : Color(hex: "#FACC15").opacity(0.18))
                                                         .cornerRadius(4)
                                                 }
                                             }

@@ -51,23 +51,35 @@ class SearchViewModel: ObservableObject {
             do {
                 let items: [MediaItem]
                 if query.isEmpty {
-                    items = Anime.curatedList.prefix(16).map { anime in
-                        MediaItem(
-                            title: anime.title,
-                            url: anime.url,
-                            posterUrl: anime.posterURL?.absoluteString ?? "",
-                            description: anime.synopsis,
-                            genres: anime.genres.joined(separator: ", "),
-                            site: "aniworld",
-                            tags: anime.genres,
-                            rank: anime.rank
-                        )
+                    // 1. Try to load live popular suggestions from AniWorld home feed
+                    if let homeRows = try? await AniworldEngine.shared.fetchHomePage(),
+                       let popular = homeRows.first(where: { $0.title.localizedCaseInsensitiveContains("beliebt") })?.items,
+                       !popular.isEmpty {
+                        items = popular
+                    } else {
+                        // 2. High-quality curated items with reliable AniWorld cover CDN paths
+                        items = Anime.curatedList.prefix(24).map { anime in
+                            let cleanSlug = anime.url
+                                .replacingOccurrences(of: "/anime/stream/", with: "")
+                                .trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+                            let realPoster = "https://aniworld.to/public/img/cover/\(cleanSlug)-poster.jpg"
+                            return MediaItem(
+                                title: anime.title,
+                                url: anime.url,
+                                posterUrl: realPoster,
+                                description: anime.synopsis,
+                                genres: anime.genres.joined(separator: ", "),
+                                site: "aniworld",
+                                tags: anime.genres,
+                                rank: anime.rank
+                            )
+                        }
                     }
                 } else {
                     items = try await AniworldEngine.shared.search(keyword: query)
                 }
                 let filtered = (filter == .gerDub) ? items.filter { it in
-                    it.tags.contains(where: { $0.localizedCaseInsensitiveContains("ger") || $0.localizedCaseInsensitiveContains("dub") })
+                    it.tags.contains(where: { $0.localizedCaseInsensitiveContains("ger") && !$0.localizedCaseInsensitiveContains("sub") })
                 } : items
                 let fetched = filtered.map { SearchAnime(title: $0.title, imageURL: $0.coverURL, url: $0.url) }
                 await MainActor.run {
@@ -157,13 +169,26 @@ struct SearchView: View {
 struct AnimeGridItem: View {
     let anime: SearchAnime
     
+    private var resolvedImageURL: URL? {
+        if let u = anime.imageURL, !u.absoluteString.isEmpty, !u.absoluteString.contains("placeholder") {
+            return u
+        }
+        let cleanSlug = anime.url
+            .replacingOccurrences(of: "/anime/stream/", with: "")
+            .trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        return URL(string: "https://aniworld.to/public/img/cover/\(cleanSlug)-poster.jpg")
+    }
+    
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            AsyncImage(url: anime.imageURL) { phase in
+            AsyncImage(url: resolvedImageURL) { phase in
                 switch phase {
                 case .empty:
-                    Color(hex: "#1A1C22")
-                        .frame(height: 145)
+                    ZStack {
+                        Color(hex: "#1A1C22")
+                        ProgressView().tint(Color(hex: "#10B981"))
+                    }
+                    .frame(height: 145)
                 case .success(let image):
                     image
                         .resizable()

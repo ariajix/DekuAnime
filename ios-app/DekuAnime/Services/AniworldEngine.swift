@@ -488,7 +488,14 @@ public actor AniworldEngine {
     
     /// Resolves direct, playable HLS (.m3u8) stream for an episode
     public static func resolveStream(for anime: Anime, episode: Episode) async throws -> URL {
-        let path = episode.path.isEmpty ? "\(anime.url)/staffel-1/episode-\(episode.number)" : episode.path
+        var path = episode.path
+        let cleanAnimeUrl = anime.url.hasPrefix("/") ? anime.url : "/\(anime.url)"
+        if path.isEmpty {
+            path = "\(cleanAnimeUrl)/staffel-1/episode-\(episode.number)"
+        } else if !path.contains("/anime/stream/") {
+            let trimmed = path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+            path = "\(cleanAnimeUrl)/\(trimmed)"
+        }
         return try await AniworldEngine.shared.resolveStream(episodeUrl: path)
     }
     
@@ -508,30 +515,50 @@ public actor AniworldEngine {
                 return URL(string: "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4")!
             }
             
-            // Extract redirect links from hoster buttons
-            let hosterPattern = #"<li[^>]*data-lang-key="(\d+)"[^>]*>[\s\S]*?<h4>(.*?)</h4>[\s\S]*?href="(/redirect/\d+)""#
-            guard let hosterRegex = try? NSRegularExpression(pattern: hosterPattern) else {
-                return URL(string: "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4")!
-            }
+            // Extract redirect links regardless of HTML tag order inside hoster items
+            let liRegex = try? NSRegularExpression(pattern: #"<li\b([^>]*)>([\s\S]*?)</li>"#, options: .caseInsensitive)
             let nsHtml = html as NSString
-            let matches = hosterRegex.matches(in: html, range: NSRange(location: 0, length: nsHtml.length))
+            let liMatches = liRegex?.matches(in: html, range: NSRange(location: 0, length: nsHtml.length)) ?? []
             
             var candidates: [(lang: Int, hoster: String, rlink: String)] = []
-            for m in matches where m.numberOfRanges > 3 {
-                let lang = Int(nsHtml.substring(with: m.range(at: 1))) ?? 1
-                let hoster = nsHtml.substring(with: m.range(at: 2)).trimmingCharacters(in: .whitespacesAndNewlines)
-                let rlink = nsHtml.substring(with: m.range(at: 3)).trimmingCharacters(in: .whitespacesAndNewlines)
-                candidates.append((lang, hoster, rlink))
+            for m in liMatches {
+                let liAttrs = nsHtml.substring(with: m.range(at: 1))
+                let liBody = nsHtml.substring(with: m.range(at: 2))
+                let combined = liAttrs + " " + liBody
+                
+                guard let rlink = combined.extractFirstGroup(pattern: #"href="(/redirect/\d+)""#) else {
+                    continue
+                }
+                
+                let langStr = combined.extractFirstGroup(pattern: #"data-lang-key="(\d+)""#)
+                let lang = Int(langStr ?? "1") ?? 1
+                
+                var hoster = combined.extractFirstGroup(pattern: #"<h4>(.*?)</h4>"#) ?? ""
+                if hoster.isEmpty {
+                    hoster = combined.extractFirstGroup(pattern: #"class="icon\s+([^"]+)""#) ?? "Unknown"
+                }
+                candidates.append((lang, hoster.trimmingCharacters(in: .whitespacesAndNewlines), rlink))
             }
             
-            // Sort: Prefer German Dub (lang 1), then German Sub (lang 2), prefer Vidmoly & VOE
+            // Direct fallback if redirect links are structured differently
+            if candidates.isEmpty {
+                let directRegex = try? NSRegularExpression(pattern: #"href="(/redirect/\d+)""#)
+                if let directMatches = directRegex?.matches(in: html, range: NSRange(location: 0, length: nsHtml.length)) {
+                    for dm in directMatches where dm.numberOfRanges > 1 {
+                        let rlink = nsHtml.substring(with: dm.range(at: 1))
+                        candidates.append((1, "Unknown", rlink))
+                    }
+                }
+            }
+            
+            // Sort: German Dub (1) first, then German Sub (2); prefer Vidmoly, VOE, Vidoza
             candidates.sort { a, b in
-                let aScore = (a.lang == 1 ? 100 : (a.lang == 2 ? 80 : 50)) + (a.hoster.localizedCaseInsensitiveContains("Vidmoly") ? 20 : (a.hoster.localizedCaseInsensitiveContains("VOE") ? 15 : 0))
-                let bScore = (b.lang == 1 ? 100 : (b.lang == 2 ? 80 : 50)) + (b.hoster.localizedCaseInsensitiveContains("Vidmoly") ? 20 : (b.hoster.localizedCaseInsensitiveContains("VOE") ? 15 : 0))
+                let aScore = (a.lang == 1 ? 100 : (a.lang == 2 ? 80 : 40)) + (a.hoster.localizedCaseInsensitiveContains("Vidmoly") ? 30 : (a.hoster.localizedCaseInsensitiveContains("VOE") ? 25 : (a.hoster.localizedCaseInsensitiveContains("Vidoza") ? 15 : 0)))
+                let bScore = (b.lang == 1 ? 100 : (b.lang == 2 ? 80 : 40)) + (b.hoster.localizedCaseInsensitiveContains("Vidmoly") ? 30 : (b.hoster.localizedCaseInsensitiveContains("VOE") ? 25 : (b.hoster.localizedCaseInsensitiveContains("Vidoza") ? 15 : 0)))
                 return aScore > bScore
             }
             
-            for c in candidates.prefix(4) {
+            for c in candidates.prefix(6) {
                 if let directStream = try? await extractStreamFromRedirect(redirectPath: c.rlink, referer: url.absoluteString) {
                     return directStream
                 }
@@ -632,7 +659,7 @@ public actor AniworldEngine {
     }
     
     private func parseCoverItems(from sectionHtml: String) -> [MediaItem] {
-        let pattern = #"<a\s+href="(/anime/stream/[^"]+)"[^>]*title="([^"]*)"[^>]*>([\s\S]*?)</a>"#
+        let pattern = #"<a\b[^>]*href="(/anime/stream/[^"]+)"[^>]*>([\s\S]*?)</a>"#
         guard let regex = try? NSRegularExpression(pattern: pattern, options: .caseInsensitive) else { return [] }
         let nsSection = sectionHtml as NSString
         let matches = regex.matches(in: sectionHtml, range: NSRange(location: 0, length: nsSection.length))
@@ -640,15 +667,21 @@ public actor AniworldEngine {
         var results: [MediaItem] = []
         var seen = Set<String>()
         
-        for m in matches where m.numberOfRanges > 3 {
+        for m in matches where m.numberOfRanges > 2 {
             let path = nsSection.substring(with: m.range(at: 1)).trimmingCharacters(in: .whitespacesAndNewlines)
-            let linkTitle = nsSection.substring(with: m.range(at: 2)).trimmingCharacters(in: .whitespacesAndNewlines)
-            let inner = nsSection.substring(with: m.range(at: 3))
+            let inner = nsSection.substring(with: m.range(at: 2))
             
             if !seen.insert(path).inserted { continue }
             
             let h3Title = inner.extractFirstGroup(pattern: #"<h3>([\s\S]*?)</h3>"#)
-            let title = unescapeHTML(h3Title ?? linkTitle).trimmingCharacters(in: .whitespacesAndNewlines)
+            let wholeA = nsSection.substring(with: m.range(at: 0))
+            let linkTitle = wholeA.extractFirstGroup(pattern: #"title="([^"]*)""#)
+            let altTitle = inner.extractFirstGroup(pattern: #"alt="([^"]*)""#)
+            
+            var title = unescapeHTML(h3Title ?? linkTitle ?? altTitle ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+            if title.isEmpty {
+                title = path.replacingOccurrences(of: "/anime/stream/", with: "").replacingOccurrences(of: "-", with: " ").capitalized
+            }
             
             let genre = inner.extractFirstGroup(pattern: #"<small>([\s\S]*?)</small>"#) ?? ""
             
@@ -666,6 +699,19 @@ public actor AniworldEngine {
                 posterCache[path] = posterUrl
             }
             
+            var tags: [String] = []
+            if !genre.isEmpty { tags.append(unescapeHTML(genre)) }
+            let lowerInner = inner.lowercased()
+            let hasDub = lowerInner.contains("german.svg") || lowerInner.contains("/flag/de") || lowerInner.contains("ger-dub") || lowerInner.contains("icon-flag-de")
+            let hasSub = lowerInner.contains("japanese-german.svg") || lowerInner.contains("ger-sub") || lowerInner.contains("icon-flag-jp")
+            
+            if hasDub {
+                tags.append("Ger Dub")
+            }
+            if hasSub || !hasDub {
+                tags.append("Ger Sub")
+            }
+            
             results.append(
                 MediaItem(
                     title: title.isEmpty ? "Anime" : title,
@@ -673,7 +719,7 @@ public actor AniworldEngine {
                     posterUrl: posterUrl,
                     genres: unescapeHTML(genre),
                     site: "aniworld",
-                    tags: [genre, "Ger Dub"]
+                    tags: tags
                 )
             )
         }
