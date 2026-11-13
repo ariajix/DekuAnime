@@ -1,4 +1,4 @@
-import SwiftUI
+﻿import SwiftUI
 
 
 
@@ -221,7 +221,10 @@ struct GenresView: View {
                     ScrollView {
                         LazyVGrid(columns: animeColumns, spacing: 12) {
                             ForEach(viewModel.animeList) { anime in
-                                GenreAnimeCardView(anime: anime)
+                                let targetAnime = Anime.curatedList.first(where: { $0.title.localizedCaseInsensitiveContains(anime.title) }) ?? Anime(title: anime.title, posterURL: anime.imageURL, hasGermanDub: anime.isGermanDub)
+                                NavigationLink(destination: DetailView(anime: targetAnime)) {
+                                    GenreAnimeCardView(anime: anime)
+                                }
                             }
                         }
                         .padding(.horizontal)

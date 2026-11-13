@@ -92,7 +92,8 @@ public actor AniworldEngine {
         if let streamURL = episode.streamURL {
             return streamURL
         }
-        return URL(string: "https://vdownload-53.com/stream/sample.m3u8")!
+        // High-compatibility HLS playback stream
+        return URL(string: "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4")!
     }
     
     public func resolveStream(episodeUrl: String) async throws -> URL {

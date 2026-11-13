@@ -1,4 +1,4 @@
-import SwiftUI
+﻿import SwiftUI
 
 // MARK: - Model
 
@@ -22,14 +22,14 @@ private final class HistoryStorageService {
             WatchedAnime(
                 id: UUID(),
                 title: "Attack on Titan",
-                thumbnailURL: URL(string: "https://aniworld.to/public/img/cover/attack-on-titan-poster.jpg"),
+                thumbnailURL: URL(string: "https://s4.anilist.co/file/anilistcdn/media/anime/cover/large/bx16498-C6FPmWm59CyP.jpg"),
                 episodeNumber: 12,
                 progress: 0.45
             ),
             WatchedAnime(
                 id: UUID(),
-                title: "My Hero Academia",
-                thumbnailURL: URL(string: "https://aniworld.to/public/img/cover/my-hero-academia-poster.jpg"),
+                title: "Solo Leveling",
+                thumbnailURL: URL(string: "https://s4.anilist.co/file/anilistcdn/media/anime/cover/large/bx151807-312948.png"),
                 episodeNumber: 5,
                 progress: 0.80
             )
@@ -90,9 +90,10 @@ struct HistoryView: View {
                     }
                 } else {
                     List(viewModel.history) { anime in
-                        HistoryRow(anime: anime, resumeAction: {
-                            // Implement resume logic here
-                        })
+                        let targetAnime = Anime.curatedList.first(where: { $0.title.localizedCaseInsensitiveContains(anime.title) }) ?? Anime(title: anime.title, posterURL: anime.thumbnailURL)
+                        NavigationLink(destination: DetailView(anime: targetAnime)) {
+                            HistoryRow(anime: anime, resumeAction: {})
+                        }
                     }
                     .listStyle(.plain)
                 }

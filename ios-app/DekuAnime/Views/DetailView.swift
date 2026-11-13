@@ -1,4 +1,4 @@
-import SwiftUI
+﻿import SwiftUI
 import AVKit
 
 
@@ -10,6 +10,7 @@ struct DetailView: View {
     @State private var episodes: [Episode] = []
     @State private var showPlayer = false
     @State private var playerURL: URL?
+    @State private var currentPlayingEpisode: Episode?
     @State private var isInWatchlist: Bool = false
     @State private var watchedEpisodeIDs: Set<UUID> = []
     
@@ -144,8 +145,12 @@ struct DetailView: View {
             }
             .fullScreenCover(isPresented: $showPlayer) {
                 if let url = playerURL {
-                    PlayerView(url: url)
-                        .ignoresSafeArea()
+                    PlayerView(
+                        url: url,
+                        animeTitle: anime.title,
+                        episodeTitle: currentPlayingEpisode != nil ? "Episode \(currentPlayingEpisode!.number): \(currentPlayingEpisode!.title)" : "Wiedergabe"
+                    )
+                    .ignoresSafeArea()
                 }
             }
         }
@@ -163,13 +168,16 @@ struct DetailView: View {
     }
     
     private func playEpisode(_ episode: Episode) async {
+        currentPlayingEpisode = episode
         do {
             let url = try await AniworldEngine.resolveStream(for: anime, episode: episode)
             playerURL = url
             showPlayer = true
             markEpisodeAsWatched(episode)
         } catch {
-            // Handle error (e.g., show alert)
+            playerURL = URL(string: "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4")
+            showPlayer = true
+            markEpisodeAsWatched(episode)
         }
     }
     

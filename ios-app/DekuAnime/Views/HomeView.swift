@@ -1,4 +1,4 @@
-import SwiftUI
+﻿import SwiftUI
 
 // MARK: - Poster Image Helper
 
@@ -38,7 +38,7 @@ struct PosterImageView: View {
 // MARK: - HomeView
 
 struct HomeView: View {
-    @State private var isGerman = false
+    var isGermanDub: Bool = false
     @State private var trendingAnime: Anime = Anime.curatedList[0]
     @State private var mega100: [Anime] = Anime.curatedList
     @State private var popularSeries: [Anime] = Array(Anime.curatedList.prefix(15))
@@ -48,14 +48,14 @@ struct HomeView: View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 24) {
-                    topBar
                     heroBanner
                     mega100Section
                     seriesSection(title: "Beliebte Serien", items: popularSeries)
                     seriesSection(title: "Neuerscheinungen", items: newReleases)
                 }
                 .padding(.horizontal)
-                .padding(.top, 8)
+                .padding(.top, 4)
+                .padding(.bottom, 24)
             }
             .refreshable {
                 await loadData()
@@ -63,60 +63,11 @@ struct HomeView: View {
             .task {
                 await loadData()
             }
-            .onChange(of: isGerman) { _ in
+            .onChange(of: isGermanDub) { _ in
                 Task { await loadData() }
             }
             .navigationBarHidden(true)
-        }
-    }
-    
-    // MARK: - Top Bar
-    
-    private var topBar: some View {
-        HStack {
-            Image("deku_logo")
-                .resizable()
-                .scaledToFit()
-                .frame(height: 32)
-            
-            Spacer()
-            
-            Button(action: {
-                isGerman.toggle()
-            }) {
-                HStack(spacing: 4) {
-                    Text("🎧")
-                        .font(.caption2)
-                    Text(isGerman ? "NUR DUB" : "ALLE")
-                        .font(.caption.bold())
-                }
-                .foregroundColor(isGerman ? Color(hex: "10B981") : .gray)
-                .padding(.horizontal, 10)
-                .padding(.vertical, 5)
-                .background(isGerman ? Color(hex: "10B981").opacity(0.2) : Color.white.opacity(0.1))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 14)
-                        .stroke(isGerman ? Color(hex: "10B981") : Color.gray.opacity(0.3), lineWidth: 1)
-                )
-                .cornerRadius(14)
-            }
-            
-            Spacer()
-            
-            NavigationLink(destination: ProfileView()) {
-                HStack(spacing: 6) {
-                    Image(systemName: "person.crop.circle")
-                        .font(.title3)
-                        .foregroundColor(Color(hex: "10B981"))
-                    Text("Hey, Deku")
-                        .font(.subheadline.bold())
-                        .foregroundColor(.white)
-                }
-                .padding(.horizontal, 12)
-                .padding(.vertical, 6)
-                .background(Color.white.opacity(0.08))
-                .cornerRadius(20)
-            }
+            .background(Color(hex: "090B10").ignoresSafeArea())
         }
     }
     
@@ -252,7 +203,7 @@ struct HomeView: View {
     
     private func loadData() async {
         let list = Anime.curatedList
-        let filtered = isGerman ? list.filter { $0.hasGermanDub } : list
+        let filtered = isGermanDub ? list.filter { $0.hasGermanDub } : list
         trendingAnime = filtered.first ?? list[0]
         mega100 = filtered
         popularSeries = Array(filtered.prefix(15))

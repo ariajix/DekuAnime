@@ -1,4 +1,4 @@
-import SwiftUI
+﻿import SwiftUI
 import Combine
 
 enum SearchFilter: String, CaseIterable, Identifiable {
@@ -131,9 +131,10 @@ struct SearchView: View {
                 
                 ScrollView {
                     LazyVGrid(columns: columns, spacing: 12) {
-                        ForEach(vm.results) { anime in
-                            NavigationLink(destination: AnimeDetailView(anime: anime)) {
-                                AnimeGridItem(anime: anime)
+                        ForEach(vm.results) { item in
+                            let targetAnime = Anime.curatedList.first(where: { $0.title.localizedCaseInsensitiveContains(item.title) }) ?? Anime(title: item.title, posterURL: item.imageURL)
+                            NavigationLink(destination: DetailView(anime: targetAnime)) {
+                                AnimeGridItem(anime: item)
                             }
                         }
                     }

@@ -1,4 +1,4 @@
-import SwiftUI
+﻿import SwiftUI
 import AVKit
 import Combine
 
@@ -166,13 +166,17 @@ final class PlayerViewModel: ObservableObject {
 // MARK: - PlayerView
 
 struct PlayerView: View {
+    @Environment(\.dismiss) private var dismiss
     @StateObject private var vm: PlayerViewModel
     @State private var showControls = true
     @State private var hideControlsTask: Task<Void, Never>? = nil
     
+    let animeTitle: String
+    let episodeTitle: String
 
-
-    init(url: URL) {
+    init(url: URL, animeTitle: String = "Anime", episodeTitle: String = "Episode") {
+        self.animeTitle = animeTitle
+        self.episodeTitle = episodeTitle
         _vm = StateObject(wrappedValue: PlayerViewModel(
             url: url,
             videoID: url.absoluteString,
@@ -183,8 +187,12 @@ struct PlayerView: View {
 
     init(url: URL,
          videoID: String,
+         animeTitle: String = "Anime",
+         episodeTitle: String = "Episode",
          aniSkipService: AniSkipServiceProtocol,
          storageService: StorageServiceProtocol) {
+        self.animeTitle = animeTitle
+        self.episodeTitle = episodeTitle
         _vm = StateObject(wrappedValue: PlayerViewModel(url: url,
                                                         videoID: videoID,
                                                         aniSkipService: aniSkipService,
@@ -199,22 +207,81 @@ struct PlayerView: View {
                 .onAppear {
                     vm.restorePlaybackPosition()
                     vm.evaluateIntroSkip()
+                    scheduleHideControls()
                 }
                 .onDisappear {
                     vm.savePlaybackPosition()
                     vm.cancelSleepTimer()
                 }
-                .onTapGesture {
-                    toggleControlsVisibility()
-                }
                 .overlay(gestureOverlay)
                 .overlay(rippleOverlay)
+                .overlay(topControls, alignment: .top)
                 .overlay(introSkipButton)
                 .overlay(bottomControls, alignment: .bottom)
                 .overlay(settingsSheet)
                 .overlay(sleepTimerSheet)
         }
+        .gesture(
+            DragGesture(minimumDistance: 30)
+                .onEnded { value in
+                    if value.translation.height > 60 {
+                        vm.player.pause()
+                        dismiss()
+                    }
+                }
+        )
         .preferredColorScheme(.dark)
+    }
+    
+    // MARK: - Top Controls
+    
+    private var topControls: some View {
+        Group {
+            if showControls {
+                HStack(spacing: 16) {
+                    Button(action: {
+                        vm.player.pause()
+                        dismiss()
+                    }) {
+                        Image(systemName: "chevron.left")
+                            .font(.system(size: 18, weight: .bold))
+                            .foregroundColor(.white)
+                            .padding(12)
+                            .background(Color.black.opacity(0.65))
+                            .clipShape(Circle())
+                    }
+                    
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(animeTitle)
+                            .font(.headline.bold())
+                            .foregroundColor(.white)
+                            .lineLimit(1)
+                        Text(episodeTitle)
+                            .font(.subheadline)
+                            .foregroundColor(.gray)
+                            .lineLimit(1)
+                    }
+                    
+                    Spacer()
+                    
+                    Button(action: {
+                        vm.player.pause()
+                        dismiss()
+                    }) {
+                        Image(systemName: "xmark")
+                            .font(.system(size: 16, weight: .bold))
+                            .foregroundColor(.white)
+                            .padding(12)
+                            .background(Color.black.opacity(0.65))
+                            .clipShape(Circle())
+                    }
+                }
+                .padding(.horizontal, 20)
+                .padding(.top, 48)
+                .transition(.move(edge: .top).combined(with: .opacity))
+            }
+        }
+        .animation(.easeInOut(duration: 0.25), value: showControls)
     }
     
     // MARK: - Controls Visibility
@@ -251,11 +318,17 @@ struct PlayerView: View {
                         vm.seek(by: -10)
                         vm.addRipple(at: CGPoint(x: geo.size.width * 0.25, y: geo.size.height / 2))
                     }
+                    .onTapGesture(count: 1) {
+                        toggleControlsVisibility()
+                    }
                 Color.clear
                     .contentShape(Rectangle())
                     .onTapGesture(count: 2) {
                         vm.seek(by: 10)
                         vm.addRipple(at: CGPoint(x: geo.size.width * 0.75, y: geo.size.height / 2))
+                    }
+                    .onTapGesture(count: 1) {
+                        toggleControlsVisibility()
                     }
             }
         }
