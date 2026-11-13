@@ -12,7 +12,7 @@ struct WatchedAnime: Identifiable, Equatable {
 
 // MARK: - Storage Service
 
-final class StorageService {
+private final class HistoryStorageService {
     static let shared = StorageService()
     
     private var storedHistory: [WatchedAnime] = []
@@ -58,7 +58,7 @@ final class HistoryViewModel: ObservableObject {
     @Published var history: [WatchedAnime] = []
     @Published var isLoading = false
     
-    private let storage = StorageService.shared
+    private let storage = HistoryStorageService.shared
     
     func loadHistory() async {
         isLoading = true

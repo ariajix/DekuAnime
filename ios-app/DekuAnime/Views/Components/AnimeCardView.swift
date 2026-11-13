@@ -1,16 +1,5 @@
 import SwiftUI
 
-// MARK: - Model
-
-struct MediaItem: Identifiable {
-    let id: UUID = UUID()
-    let title: String
-    let subtitle: String          // e.g. "Staffel 2" or "12 Episodes"
-    let posterURL: URL?
-    let tags: [String]            // e.g. ["Ger", "GerSub"]
-    let rank: Int?                // e.g. 1 for "TOP 1"
-}
-
 // MARK: - Shimmer Placeholder
 
 struct ShimmerView: View {

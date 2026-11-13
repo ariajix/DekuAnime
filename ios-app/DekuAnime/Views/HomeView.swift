@@ -273,35 +273,6 @@ struct Mega100GridView: View {
     }
 }
 
-// MARK: - DetailView (Placeholder)
-
-struct DetailView: View {
-    let anime: Anime
-    
-    var body: some View {
-        VStack {
-            Image(anime.imageName)
-                .resizable()
-                .scaledToFit()
-                .frame(maxHeight: 300)
-                .cornerRadius(12)
-                .padding()
-            
-            Text(anime.title)
-                .font(.largeTitle.bold())
-                .padding(.bottom, 8)
-            
-            Text("Detailed description goes here. This is a placeholder view for the selected anime.")
-                .font(.body)
-                .padding()
-            
-            Spacer()
-        }
-        .navigationTitle(anime.title)
-        .navigationBarTitleDisplayMode(.inline)
-    }
-}
-
 // MARK: - ProfileView (Placeholder)
 
 struct ProfileView: View {

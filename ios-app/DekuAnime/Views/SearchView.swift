@@ -8,7 +8,7 @@ enum SearchFilter: String, CaseIterable, Identifiable {
     var id: String { rawValue }
 }
 
-struct Anime: Identifiable {
+private struct SearchAnime: Identifiable {
     let id: UUID = UUID()
     let title: String
     let imageURL: URL?
@@ -17,7 +17,7 @@ struct Anime: Identifiable {
 class SearchViewModel: ObservableObject {
     @Published var query = ""
     @Published var filter: SearchFilter = .all
-    @Published var results: [Anime] = []
+    @Published var results: [SearchAnime] = []
     @Published var isLoading = false
     
     private var cancellables = Set<AnyCancellable>()
@@ -124,7 +124,7 @@ struct SearchView: View {
 }
 
 struct AnimeGridItem: View {
-    let anime: Anime
+    let anime: SearchAnime
     
     var body: some View {
         VStack {
@@ -158,7 +158,7 @@ struct AnimeGridItem: View {
 }
 
 struct AnimeDetailView: View {
-    let anime: Anime
+    let anime: SearchAnime
     
     var body: some View {
         VStack {

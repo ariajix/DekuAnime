@@ -1,19 +1,7 @@
 import Foundation
 import SwiftUI
 
-// MARK: - MediaItem
 
-/// A simple representation of a media item. Adjust properties as needed.
-public struct MediaItem: Identifiable, Codable, Hashable {
-    public let id: String               // Unique identifier (e.g., UUID or TMDB id)
-    public let title: String
-    public let thumbnailURL: URL?
-    
-    public init(id: String, title: String, thumbnailURL: URL? = nil) {
-        self.id = id
-        self.title = title
-        self.thumbnailURL = thumbnailURL
-    }
 }
 
 // MARK: - HistoryEntry

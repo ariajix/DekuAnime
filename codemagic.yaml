@@ -2,35 +2,52 @@ workflows:
   ios-native-build:
     name: Build Native Deku Anime IPA
     max_build_duration: 30
-    instance_type: mac_mini_m1
+    instance_type: mac_mini_m2
     environment:
       xcode: latest
     scripts:
       - name: Install XcodeGen
         script: |
+          set -e
           brew install xcodegen
+
       - name: Generate Xcode Project
         script: |
+          set -e
           cd ios-app
           xcodegen generate
+
       - name: Build and Package IPA
         script: |
+          set -e
           cd ios-app
-          mkdir -p build/Payload
           
-          xcodebuild archive \
+          echo "Building DekuAnime for generic iOS Device (arm64)..."
+          xcodebuild build \
             -project DekuAnime.xcodeproj \
             -scheme DekuAnime \
             -configuration Release \
-            -archivePath build/DekuAnime.xcarchive \
             -destination 'generic/platform=iOS' \
+            -derivedDataPath build/DerivedData \
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGN_IDENTITY=""
-
-          cp -R build/DekuAnime.xcarchive/Products/Applications/DekuAnime.app build/Payload/
+          
+          APP_PATH="build/DerivedData/Build/Products/Release-iphoneos/DekuAnime.app"
+          if [ ! -d "$APP_PATH" ]; then
+            echo "ERROR: $APP_PATH was not created!"
+            exit 1
+          fi
+          
+          echo "Packaging into Payload..."
+          rm -rf build/Payload
+          mkdir -p build/Payload
+          cp -R "$APP_PATH" build/Payload/DekuAnime.app
+          
           cd build
           zip -qr DekuAnime.ipa Payload
-          echo "DekuAnime.ipa created successfully!"
+          
+          echo "SUCCESS! DekuAnime.ipa created:"
+          ls -lh DekuAnime.ipa
     artifacts:
       - ios-app/build/DekuAnime.ipa

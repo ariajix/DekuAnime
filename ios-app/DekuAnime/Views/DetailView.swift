@@ -1,51 +1,6 @@
 import SwiftUI
 import AVKit
 
-// MARK: - Models
-
-struct Anime: Identifiable {
-    let id: UUID
-    let title: String
-    let posterURL: URL
-    let synopsis: String
-    let genres: [String]
-    let seasons: [Season]
-    let isInWatchlist: Bool
-}
-
-struct Season: Identifiable, Hashable {
-    let id: UUID
-    let number: Int
-    let episodes: [Episode]
-}
-
-struct Episode: Identifiable, Hashable {
-    let id: UUID
-    let number: Int
-    let title: String
-    let hasGermanDub: Bool
-}
-
-// MARK: - Engine Stub
-
-enum AniworldEngine {
-    static func resolveStream(for anime: Anime, episode: Episode) async throws -> URL {
-        // Placeholder implementation – replace with real API call
-        try await Task.sleep(nanoseconds: 500_000_000)
-        return URL(string: "https://example.com/stream/\(anime.id)/\(episode.id).m3u8")!
-    }
-}
-
-// MARK: - Player View
-
-struct PlayerView: View {
-    let url: URL
-    
-    var body: some View {
-        VideoPlayer(player: AVPlayer(url: url))
-            .ignoresSafeArea()
-    }
-}
 
 // MARK: - Detail View
 
