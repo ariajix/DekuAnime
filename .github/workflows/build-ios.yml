@@ -5,6 +5,9 @@ on:
   push:
     branches: [ master, main ]
 
+permissions:
+  contents: write
+
 jobs:
   build-ios:
     name: Build iOS IPA
@@ -43,9 +46,19 @@ jobs:
           zip -qr DekuAnime.ipa Payload
           echo "DekuAnime.ipa created successfully!"
 
-      - name: Upload DekuAnime IPA
+      - name: Upload DekuAnime IPA Artifact
         uses: actions/upload-artifact@v4
         with:
           name: DekuAnime-iOS-IPA
           path: ios-app/build/DekuAnime.ipa
           if-no-files-found: error
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v1.0.0
+          name: "Deku Anime Native iOS v1.0.0"
+          body: "Offizieller nativer iOS SwiftUI Build für Deku Anime. Bereit für Sideloadly / SideStore."
+          files: ios-app/build/DekuAnime.ipa
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
