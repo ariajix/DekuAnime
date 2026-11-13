@@ -14,7 +14,6 @@ struct Ripple: Identifiable, Equatable {
 
 // MARK: - ViewModel
 
-@MainActor
 final class PlayerViewModel: ObservableObject {
     @Published var player: AVPlayer
     @Published var isPlaying = false
@@ -96,13 +95,14 @@ final class PlayerViewModel: ObservableObject {
         
         // Time observer for Progress Bar / Scrubber
         let interval = CMTime(seconds: 0.5, preferredTimescale: 600)
-        timeObserverToken = player.addPeriodicTimeObserver(forInterval: interval, queue: .main) { [weak self] time in
+        let playerRef = self.player
+        timeObserverToken = playerRef.addPeriodicTimeObserver(forInterval: interval, queue: .main) { [weak self] time in
             guard let self = self, !self.isDraggingSlider else { return }
             let secs = time.seconds
             if !secs.isNaN && secs >= 0 {
                 self.currentTime = secs
             }
-            if let d = self.player.currentItem?.duration.seconds, !d.isNaN, d > 0 {
+            if let d = playerRef.currentItem?.duration.seconds, !d.isNaN, d > 0 {
                 self.duration = d
             }
             // Auto-persist history progress every 15 seconds
@@ -174,11 +174,13 @@ final class PlayerViewModel: ObservableObject {
     
     func startSleepTimer(minutes: Int) {
         cancelSleepTimer()
-        sleepTimerTask = Task { @MainActor [weak self] in
+        sleepTimerTask = Task { [weak self] in
             try? await Task.sleep(nanoseconds: UInt64(minutes) * 60 * 1_000_000_000)
-            self?.player.pause()
-            self?.isPlaying = false
-            self?.showSleepTimer = false
+            await MainActor.run {
+                self?.player.pause()
+                self?.isPlaying = false
+                self?.showSleepTimer = false
+            }
         }
     }
     
@@ -192,17 +194,19 @@ final class PlayerViewModel: ObservableObject {
     func savePlaybackPosition() {
         let pos = player.currentTime().seconds
         guard pos > 1 else { return }
-        StorageService.shared.recordWatch(
-            animeTitle: self.animeTitle,
-            posterUrl: self.posterUrl,
-            seriesUrl: self.seriesUrl,
-            episodeUrl: self.episodeUrl,
-            episodeTitle: self.episodeTitle,
-            season: self.seasonNumber,
-            episode: self.episodeNumber,
-            position: pos,
-            duration: self.duration
-        )
+        Task { @MainActor in
+            StorageService.shared.recordWatch(
+                animeTitle: self.animeTitle,
+                posterUrl: self.posterUrl,
+                seriesUrl: self.seriesUrl,
+                episodeUrl: self.episodeUrl,
+                episodeTitle: self.episodeTitle,
+                season: self.seasonNumber,
+                episode: self.episodeNumber,
+                position: pos,
+                duration: self.duration
+            )
+        }
     }
     
     func restorePlaybackPosition() {
