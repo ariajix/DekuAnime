@@ -1,4 +1,4 @@
-﻿import SwiftUI
+import SwiftUI
 import Combine
 
 enum SearchFilter: String, CaseIterable, Identifiable {
@@ -12,11 +12,13 @@ struct SearchAnime: Identifiable, Hashable, Codable {
     let id: UUID
     let title: String
     let imageURL: URL?
+    let url: String
 
-    init(id: UUID = UUID(), title: String, imageURL: URL? = nil) {
+    init(id: UUID = UUID(), title: String, imageURL: URL? = nil, url: String = "") {
         self.id = id
         self.title = title
         self.imageURL = imageURL
+        self.url = url
     }
 }
 
@@ -67,7 +69,7 @@ class SearchViewModel: ObservableObject {
                 let filtered = (filter == .gerDub) ? items.filter { it in
                     it.tags.contains(where: { $0.localizedCaseInsensitiveContains("ger") || $0.localizedCaseInsensitiveContains("dub") })
                 } : items
-                let fetched = filtered.map { SearchAnime(title: $0.title, imageURL: $0.coverURL) }
+                let fetched = filtered.map { SearchAnime(title: $0.title, imageURL: $0.coverURL, url: $0.url) }
                 await MainActor.run {
                     self.results = fetched
                     self.isLoading = false
@@ -132,7 +134,7 @@ struct SearchView: View {
                 ScrollView {
                     LazyVGrid(columns: columns, spacing: 12) {
                         ForEach(vm.results) { item in
-                            let targetAnime = Anime.curatedList.first(where: { $0.title.localizedCaseInsensitiveContains(item.title) }) ?? Anime(title: item.title, posterURL: item.imageURL)
+                            let targetAnime = Anime.curatedList.first(where: { $0.url == item.url || $0.title.localizedCaseInsensitiveContains(item.title) }) ?? Anime(title: item.title, posterURL: item.imageURL, url: item.url)
                             NavigationLink(destination: DetailView(anime: targetAnime)) {
                                 AnimeGridItem(anime: item)
                             }

@@ -1,4 +1,4 @@
-﻿import SwiftUI
+import SwiftUI
 import AVKit
 
 
@@ -13,8 +13,14 @@ struct DetailView: View {
     @State private var currentPlayingEpisode: Episode?
     @State private var isInWatchlist: Bool = false
     @State private var watchedEpisodeIDs: Set<UUID> = []
+    @State private var detailedAnime: Anime?
+    @State private var isLoadingEpisodes: Bool = false
     
     let anime: Anime
+    
+    private var activeAnime: Anime {
+        detailedAnime ?? anime
+    }
     
     var body: some View {
         NavigationStack {
@@ -22,7 +28,7 @@ struct DetailView: View {
                 VStack(alignment: .leading, spacing: 16) {
                     // Poster with gradient
                     ZStack(alignment: .bottom) {
-                        AsyncImage(url: anime.posterURL) { phase in
+                        AsyncImage(url: activeAnime.posterURL) { phase in
                             switch phase {
                             case .empty:
                                 Color.gray.opacity(0.3)
@@ -46,7 +52,7 @@ struct DetailView: View {
                     
                     // Title & Watchlist
                     HStack {
-                        Text(anime.title)
+                        Text(activeAnime.title)
                             .font(.title2)
                             .fontWeight(.bold)
                         Spacer()
@@ -59,7 +65,7 @@ struct DetailView: View {
                     // Genres
                     ScrollView(.horizontal, showsIndicators: false) {
                         HStack {
-                            ForEach(anime.genres, id: \.self) { genre in
+                            ForEach(activeAnime.genres, id: \.self) { genre in
                                 Text(genre)
                                     .font(.caption)
                                     .padding(.horizontal, 8)
@@ -71,14 +77,14 @@ struct DetailView: View {
                     }
                     
                     // Synopsis
-                    Text(anime.synopsis)
+                    Text(activeAnime.synopsis)
                         .font(.body)
                         .foregroundColor(.secondary)
                     
                     // Season Picker
-                    if !anime.seasons.isEmpty {
+                    if !activeAnime.seasons.isEmpty {
                         Picker("Staffel", selection: $selectedSeason) {
-                            ForEach(anime.seasons) { season in
+                            ForEach(activeAnime.seasons) { season in
                                 Text("Staffel \(season.number)").tag(season as Season?)
                             }
                         }
@@ -87,6 +93,15 @@ struct DetailView: View {
                             episodes = newSeason?.episodes ?? []
                         }
                         .padding(.vertical, 4)
+                    }
+                    
+                    if isLoadingEpisodes {
+                        HStack {
+                            Spacer()
+                            ProgressView("Episoden laden...")
+                                .padding()
+                            Spacer()
+                        }
                     }
                     
                     // Episode List
@@ -139,15 +154,33 @@ struct DetailView: View {
             }
             .onAppear {
                 isInWatchlist = StorageService.shared.isInWatchlist(anime: anime)
-                selectedSeason = anime.seasons.first
+                selectedSeason = activeAnime.seasons.first
                 episodes = selectedSeason?.episodes ?? []
                 loadWatchedEpisodes()
+                
+                if !anime.url.isEmpty {
+                    isLoadingEpisodes = episodes.isEmpty
+                    Task {
+                        if let online = try? await AniworldEngine.shared.fetchSeries(seriesPath: anime.url) {
+                            await MainActor.run {
+                                self.detailedAnime = online
+                                self.selectedSeason = online.seasons.first
+                                self.episodes = self.selectedSeason?.episodes ?? []
+                                self.isLoadingEpisodes = false
+                            }
+                        } else {
+                            await MainActor.run {
+                                self.isLoadingEpisodes = false
+                            }
+                        }
+                    }
+                }
             }
             .fullScreenCover(isPresented: $showPlayer) {
                 if let url = playerURL {
                     PlayerView(
                         url: url,
-                        animeTitle: anime.title,
+                        animeTitle: activeAnime.title,
                         episodeTitle: currentPlayingEpisode != nil ? "Episode \(currentPlayingEpisode!.number): \(currentPlayingEpisode!.title)" : "Wiedergabe"
                     )
                     .ignoresSafeArea()
@@ -161,16 +194,16 @@ struct DetailView: View {
     private func toggleWatchlist() {
         isInWatchlist.toggle()
         if isInWatchlist {
-            StorageService.shared.addToWatchlist(anime)
+            StorageService.shared.addToWatchlist(activeAnime)
         } else {
-            StorageService.shared.removeFromWatchlist(anime)
+            StorageService.shared.removeFromWatchlist(activeAnime)
         }
     }
     
     private func playEpisode(_ episode: Episode) async {
         currentPlayingEpisode = episode
         do {
-            let url = try await AniworldEngine.resolveStream(for: anime, episode: episode)
+            let url = try await AniworldEngine.resolveStream(for: activeAnime, episode: episode)
             playerURL = url
             showPlayer = true
             markEpisodeAsWatched(episode)

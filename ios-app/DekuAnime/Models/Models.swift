@@ -62,13 +62,15 @@ public struct Episode: Identifiable, Hashable, Codable {
     public let title: String
     public let hasGermanDub: Bool
     public let streamURL: URL?
+    public var path: String
     
-    public init(id: UUID = UUID(), number: Int, title: String, hasGermanDub: Bool = true, streamURL: URL? = nil) {
+    public init(id: UUID = UUID(), number: Int, title: String, hasGermanDub: Bool = true, streamURL: URL? = nil, path: String = "") {
         self.id = id
         self.number = number
         self.title = title
         self.hasGermanDub = hasGermanDub
         self.streamURL = streamURL
+        self.path = path
     }
 }
 

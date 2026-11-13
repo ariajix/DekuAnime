@@ -1,4 +1,4 @@
-﻿import SwiftUI
+import SwiftUI
 
 // MARK: - Poster Image Helper
 
@@ -202,6 +202,40 @@ struct HomeView: View {
     // MARK: - Data Loading
     
     private func loadData() async {
+        do {
+            let rows = try await AniworldEngine.shared.fetchHomePage()
+            let allItems = rows.flatMap { $0.items }
+            let converted = allItems.map { item in
+                Anime(
+                    title: item.title,
+                    posterURL: item.posterURL,
+                    synopsis: item.description.isEmpty ? "Auf AniWorld streamen." : item.description,
+                    genres: item.tags.isEmpty ? ["Anime"] : item.tags,
+                    rank: item.rank,
+                    hasGermanDub: true,
+                    url: item.url
+                )
+            }
+            if !converted.isEmpty {
+                let filtered = isGermanDub ? converted.filter { $0.hasGermanDub } : converted
+                if let first = filtered.first {
+                    trendingAnime = first
+                }
+                mega100 = filtered
+                if let popRow = rows.first(where: { $0.title.contains("Beliebte") }) {
+                    popularSeries = popRow.items.map { item in
+                        Anime(title: item.title, posterURL: item.posterURL, synopsis: item.description, genres: item.tags, url: item.url)
+                    }
+                }
+                if let newRow = rows.first(where: { $0.title.contains("Neu") }) {
+                    newReleases = newRow.items.map { item in
+                        Anime(title: item.title, posterURL: item.posterURL, synopsis: item.description, genres: item.tags, url: item.url)
+                    }
+                }
+                return
+            }
+        } catch {}
+        
         let list = Anime.curatedList
         let filtered = isGermanDub ? list.filter { $0.hasGermanDub } : list
         trendingAnime = filtered.first ?? list[0]

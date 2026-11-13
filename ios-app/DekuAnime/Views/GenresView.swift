@@ -1,4 +1,4 @@
-﻿import SwiftUI
+import SwiftUI
 
 
 
@@ -9,9 +9,17 @@ struct GenreAnime: Identifiable, Hashable {
     let title: String
     let imageURL: URL?
     let isGermanDub: Bool
+    let url: String
+
+    init(title: String, imageURL: URL?, isGermanDub: Bool = true, url: String = "") {
+        self.title = title
+        self.imageURL = imageURL
+        self.isGermanDub = isGermanDub
+        self.url = url
+    }
 }
 
-// MARK: - Dummy Data Provider
+// MARK: - Data Provider
 
 class AnimeService {
     static let shared = AnimeService()
@@ -25,13 +33,20 @@ class AnimeService {
         allGenres
     }
     
-    // Simulated network fetch with pagination
     func fetchGenreAnime(
         genre: String,
         germanDubOnly: Bool,
         offset: Int,
         limit: Int
     ) async throws -> [GenreAnime] {
+        let slug = genre.lowercased().replacingOccurrences(of: "komödie", with: "komoedie").replacingOccurrences(of: "‑", with: "-")
+        if let (items, _) = try? await AniworldEngine.shared.fetchGenre(slug: slug, page: (offset / limit) + 1), !items.isEmpty {
+            let filtered = germanDubOnly ? items.filter { $0.isGerDub } : items
+            return filtered.map {
+                GenreAnime(title: $0.title, imageURL: $0.posterURL, isGermanDub: $0.isGerDub, url: $0.url)
+            }
+        }
+        
         let matching = Anime.curatedList.filter { anime in
             let matchesGenre = genre.isEmpty || anime.genres.contains { g in
                 g.localizedCaseInsensitiveContains(genre) ||
@@ -46,7 +61,8 @@ class AnimeService {
             GenreAnime(
                 title: anime.title,
                 imageURL: anime.posterURL,
-                isGermanDub: anime.hasGermanDub
+                isGermanDub: anime.hasGermanDub,
+                url: anime.url
             )
         }
     }
@@ -221,7 +237,7 @@ struct GenresView: View {
                     ScrollView {
                         LazyVGrid(columns: animeColumns, spacing: 12) {
                             ForEach(viewModel.animeList) { anime in
-                                let targetAnime = Anime.curatedList.first(where: { $0.title.localizedCaseInsensitiveContains(anime.title) }) ?? Anime(title: anime.title, posterURL: anime.imageURL, hasGermanDub: anime.isGermanDub)
+                                let targetAnime = Anime.curatedList.first(where: { $0.url == anime.url || $0.title.localizedCaseInsensitiveContains(anime.title) }) ?? Anime(title: anime.title, posterURL: anime.imageURL, hasGermanDub: anime.isGermanDub, url: anime.url)
                                 NavigationLink(destination: DetailView(anime: targetAnime)) {
                                     GenreAnimeCardView(anime: anime)
                                 }
