@@ -1,183 +1,207 @@
 import SwiftUI
 
-// MARK: - Model
-
-struct WatchedAnime: Identifiable, Equatable {
-    let id: UUID
-    let title: String
-    let thumbnailURL: URL?
-    let episodeNumber: Int
-    let progress: Double   // 0.0 … 1.0
-}
-
-// MARK: - Storage Service
-
-private final class HistoryStorageService {
-    static let shared = HistoryStorageService()
-    
-    private var storedHistory: [WatchedAnime] = []
-    
-    private init() {
-        storedHistory = [
-            WatchedAnime(
-                id: UUID(),
-                title: "Attack on Titan",
-                thumbnailURL: URL(string: "https://s4.anilist.co/file/anilistcdn/media/anime/cover/large/bx16498-C6FPmWm59CyP.jpg"),
-                episodeNumber: 12,
-                progress: 0.45
-            ),
-            WatchedAnime(
-                id: UUID(),
-                title: "Solo Leveling",
-                thumbnailURL: URL(string: "https://s4.anilist.co/file/anilistcdn/media/anime/cover/large/bx151807-312948.png"),
-                episodeNumber: 5,
-                progress: 0.80
-            )
-        ]
-    }
-    
-    func fetchHistory() async -> [WatchedAnime] {
-        // Simulate async fetch
-        try? await Task.sleep(nanoseconds: 200_000_000) // 0.2 sec
-        return storedHistory
-    }
-    
-    func clearHistory() async {
-        try? await Task.sleep(nanoseconds: 100_000_000) // 0.1 sec
-        storedHistory.removeAll()
-    }
-}
-
-// MARK: - ViewModel
-
-@MainActor
-final class HistoryViewModel: ObservableObject {
-    @Published var history: [WatchedAnime] = []
-    @Published var isLoading = false
-    
-    private let storage = HistoryStorageService.shared
-    
-    func loadHistory() async {
-        isLoading = true
-        history = await storage.fetchHistory()
-        isLoading = false
-    }
-    
-    func clearHistory() async {
-        await storage.clearHistory()
-        history.removeAll()
-    }
-}
-
 // MARK: - View
 
 struct HistoryView: View {
-    @StateObject private var viewModel = HistoryViewModel()
+    @ObservedObject private var storage = StorageService.shared
     @State private var showClearAlert = false
+    @State private var selectedPlayerItem: HistoryPlayerItem? = nil
+    @State private var isResolving = false
+    
+    struct HistoryPlayerItem: Identifiable {
+        let id = UUID()
+        let streamURL: URL
+        let animeTitle: String
+        let episodeTitle: String
+        let posterUrl: String
+        let seriesUrl: String
+        let episodeUrl: String
+        let seasonNumber: Int
+        let episodeNumber: Int
+        let position: Double
+    }
     
     var body: some View {
         NavigationStack {
             Group {
-                if viewModel.isLoading {
-                    ProgressView()
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                } else if viewModel.history.isEmpty {
-                    VStack {
+                if storage.history.isEmpty {
+                    VStack(spacing: 16) {
                         Spacer()
+                        Image(systemName: "clock.arrow.circlepath")
+                            .font(.system(size: 48))
+                            .foregroundColor(.gray)
                         Text("Noch kein Verlauf vorhanden")
-                            .foregroundStyle(.secondary)
+                            .font(.headline)
+                            .foregroundColor(.white)
+                        Text("Starte eine Episode, um sie hier fortzusetzen.")
+                            .font(.subheadline)
+                            .foregroundColor(.gray)
                         Spacer()
                     }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
                 } else {
-                    List(viewModel.history) { anime in
-                        let targetAnime = Anime.curatedList.first(where: { $0.title.localizedCaseInsensitiveContains(anime.title) }) ?? Anime(title: anime.title, posterURL: anime.thumbnailURL)
-                        NavigationLink(destination: DetailView(anime: targetAnime)) {
-                            HistoryRow(anime: anime, resumeAction: {})
+                    List {
+                        ForEach(storage.history) { entry in
+                            HistoryRow(entry: entry) {
+                                resumeEpisode(entry)
+                            }
+                            .listRowBackground(Color(hex: "#101216"))
+                            .listRowSeparatorTint(Color.white.opacity(0.1))
                         }
                     }
                     .listStyle(.plain)
                 }
             }
             .navigationTitle("Verlauf & Fortsetzen")
+            .background(Color(hex: "#090B10").ignoresSafeArea())
             .toolbar {
-                ToolbarItem(placement: .bottomBar) {
-                    Button("Verlauf komplett leeren") {
-                        showClearAlert = true
+                if !storage.history.isEmpty {
+                    ToolbarItem(placement: .navigationBarTrailing) {
+                        Button(role: .destructive) {
+                            showClearAlert = true
+                        } label: {
+                            Text("Leeren")
+                                .foregroundColor(.red)
+                        }
                     }
-                    .foregroundStyle(.red)
                 }
             }
             .alert("Verlauf leeren", isPresented: $showClearAlert) {
                 Button("Abbrechen", role: .cancel) {}
                 Button("Leeren", role: .destructive) {
-                    Task {
-                        await viewModel.clearHistory()
+                    withAnimation {
+                        storage.clearHistory()
                     }
                 }
             } message: {
-                Text("Möchten Sie wirklich den gesamten Verlauf löschen?")
+                Text("Möchtest du wirklich den gesamten Verlauf löschen?")
             }
-            .task {
-                await viewModel.loadHistory()
+            .overlay {
+                if isResolving {
+                    ZStack {
+                        Color.black.opacity(0.7).ignoresSafeArea()
+                        ProgressView("Lade Stream...")
+                            .tint(Color(hex: "#10B981"))
+                            .foregroundColor(.white)
+                    }
+                }
+            }
+            .fullScreenCover(item: $selectedPlayerItem) { item in
+                PlayerView(
+                    url: item.streamURL,
+                    animeTitle: item.animeTitle,
+                    episodeTitle: item.episodeTitle,
+                    posterUrl: item.posterUrl,
+                    seriesUrl: item.seriesUrl,
+                    episodeUrl: item.episodeUrl,
+                    seasonNumber: item.seasonNumber,
+                    episodeNumber: item.episodeNumber,
+                    initialTime: item.position
+                )
+            }
+        }
+    }
+    
+    private func resumeEpisode(_ entry: HistoryEntry) {
+        guard !entry.episodeUrl.isEmpty else { return }
+        isResolving = true
+        Task {
+            do {
+                let streamUrl = try await AniworldEngine.shared.resolveStream(episodeUrl: entry.episodeUrl)
+                await MainActor.run {
+                    self.isResolving = false
+                    self.selectedPlayerItem = HistoryPlayerItem(
+                        streamURL: streamUrl,
+                        animeTitle: entry.animeTitle,
+                        episodeTitle: "Staffel \(entry.season) Episode \(entry.episode) - \(entry.episodeTitle)",
+                        posterUrl: entry.posterUrl,
+                        seriesUrl: entry.seriesUrl,
+                        episodeUrl: entry.episodeUrl,
+                        seasonNumber: entry.season,
+                        episodeNumber: entry.episode,
+                        position: entry.position
+                    )
+                }
+            } catch {
+                await MainActor.run {
+                    self.isResolving = false
+                }
             }
         }
     }
 }
 
-// MARK: - Row
+// MARK: - HistoryRow
 
-struct HistoryRow: View {
-    let anime: WatchedAnime
+private struct HistoryRow: View {
+    let entry: HistoryEntry
     let resumeAction: () -> Void
     
     var body: some View {
-        HStack(spacing: 12) {
-            AsyncImage(url: anime.thumbnailURL) { phase in
-                switch phase {
-                case .empty:
-                    Color.gray.opacity(0.2)
-                case .success(let image):
-                    image
-                        .resizable()
-                        .scaledToFill()
-                case .failure:
-                    Color.gray.opacity(0.2)
-                @unknown default:
-                    Color.gray.opacity(0.2)
+        Button(action: resumeAction) {
+            HStack(spacing: 12) {
+                // Thumbnail
+                AsyncImage(url: URL(string: entry.posterUrl)) { phase in
+                    switch phase {
+                    case .empty:
+                        Color(hex: "#1A1C22")
+                    case .success(let image):
+                        image
+                            .resizable()
+                            .scaledToFill()
+                    case .failure:
+                        Color(hex: "#1A1C22")
+                            .overlay {
+                                Image(systemName: "film")
+                                    .foregroundColor(.gray)
+                            }
+                    @unknown default:
+                        Color(hex: "#1A1C22")
+                    }
                 }
+                .frame(width: 65, height: 95)
+                .clipped()
+                .cornerRadius(8)
+                
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(entry.animeTitle)
+                        .font(.headline)
+                        .foregroundColor(.white)
+                        .lineLimit(1)
+                    
+                    Text("Staffel \(entry.season) • Folge \(entry.episode)")
+                        .font(.subheadline)
+                        .foregroundColor(Color(hex: "#10B981"))
+                    
+                    if !entry.episodeTitle.isEmpty {
+                        Text(entry.episodeTitle)
+                            .font(.caption)
+                            .foregroundColor(.gray)
+                            .lineLimit(1)
+                    }
+                    
+                    // Time Info & Progress Bar
+                    if entry.duration > 0 {
+                        ProgressView(value: min(entry.position / entry.duration, 1.0))
+                            .tint(Color(hex: "#10B981"))
+                        Text("Minute \(Int(entry.position / 60)) von \(Int(entry.duration / 60)) Min")
+                            .font(.caption2)
+                            .foregroundColor(.secondary)
+                    } else if entry.position > 0 {
+                        Text("Fortsetzen bei \(Int(entry.position / 60)) Min")
+                            .font(.caption2)
+                            .foregroundColor(.secondary)
+                    }
+                }
+                
+                Spacer()
+                
+                Image(systemName: "play.circle.fill")
+                    .font(.system(size: 32))
+                    .foregroundColor(Color(hex: "#10B981"))
             }
-            .frame(width: 80, height: 45)
-            .clipShape(RoundedRectangle(cornerRadius: 6))
-            
-            VStack(alignment: .leading, spacing: 4) {
-                Text(anime.title)
-                    .font(.headline)
-                    .lineLimit(1)
-                Text("Folge \(anime.episodeNumber)")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-                ProgressView(value: anime.progress)
-                    .progressViewStyle(.linear)
-            }
-            
-            Spacer()
-            
-            Button(action: resumeAction) {
-                Image(systemName: "play.fill")
-                    .font(.title2)
-            }
-            .buttonStyle(.bordered)
+            .padding(.vertical, 6)
         }
-        .padding(.vertical, 4)
+        .buttonStyle(.plain)
     }
 }
-
-// MARK: - Preview
-
-#if DEBUG
-struct HistoryView_Previews: PreviewProvider {
-    static var previews: some View {
-        HistoryView()
-    }
-}
-#endif

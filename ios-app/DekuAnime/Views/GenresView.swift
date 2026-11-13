@@ -24,13 +24,39 @@ struct GenreAnime: Identifiable, Hashable {
 class AnimeService {
     static let shared = AnimeService()
     
-    private let allGenres = [
-        "Action", "Abenteuer", "Komödie", "Fighting‑Shounen", "Drama",
-        "Fantasy", "Sci‑Fi", "Mystery", "Horror", "Slice‑of‑Life"
+    static let allGenres: [(name: String, slug: String)] = [
+        ("Action", "action"),
+        ("Abenteuer", "abenteuer"),
+        ("Shōnen", "fighting-shounen"),
+        ("Isekai", "fantasy"),
+        ("Fantasy", "fantasy"),
+        ("Magie", "magical-girl"),
+        ("Romance", "romanze"),
+        ("Drama", "drama"),
+        ("Comedy", "komoedie"),
+        ("Slice of Life", "alltagsleben"),
+        ("Sci-Fi", "scifi"),
+        ("Mecha", "mecha"),
+        ("Mystery", "mystery"),
+        ("Horror", "horror"),
+        ("Psychologisch", "psychodrama"),
+        ("Thriller", "thriller"),
+        ("Sport", "sport"),
+        ("Supernatural", "geistergeschichten"),
+        ("Dämonen", "geistergeschichten"),
+        ("Militär", "action"),
+        ("Schulleben", "alltagsleben"),
+        ("Musik", "alltagsleben"),
+        ("Ecchi", "ecchi"),
+        ("Nur Ger Dub", "ger")
     ]
     
     func fetchGenres() -> [String] {
-        allGenres
+        Self.allGenres.map { $0.name }
+    }
+    
+    func slugForGenre(_ genreName: String) -> String {
+        Self.allGenres.first(where: { $0.name.caseInsensitiveCompare(genreName) == .orderedSame })?.slug ?? genreName.lowercased()
     }
     
     func fetchGenreAnime(
@@ -39,9 +65,12 @@ class AnimeService {
         offset: Int,
         limit: Int
     ) async throws -> [GenreAnime] {
-        let slug = genre.lowercased().replacingOccurrences(of: "komödie", with: "komoedie").replacingOccurrences(of: "‑", with: "-")
-        if let (items, _) = try? await AniworldEngine.shared.fetchGenre(slug: slug, page: (offset / limit) + 1), !items.isEmpty {
-            let filtered = germanDubOnly ? items.filter { $0.isGerDub } : items
+        let slug = slugForGenre(genre)
+        let isDubFilter = germanDubOnly || genre == "Nur Ger Dub"
+        let page = (offset / limit) + 1
+        
+        if let (items, _) = try? await AniworldEngine.shared.fetchGenre(slug: slug, page: page), !items.isEmpty {
+            let filtered = isDubFilter ? items.filter { $0.isGerDub } : items
             return filtered.map {
                 GenreAnime(title: $0.title, imageURL: $0.posterURL, isGermanDub: $0.isGerDub, url: $0.url)
             }
@@ -50,9 +79,9 @@ class AnimeService {
         let matching = Anime.curatedList.filter { anime in
             let matchesGenre = genre.isEmpty || anime.genres.contains { g in
                 g.localizedCaseInsensitiveContains(genre) ||
-                (genre.contains("Shounen") && (g.contains("Shonen") || g.contains("Action")))
+                (genre.contains("Shōnen") && (g.contains("Shonen") || g.contains("Action")))
             }
-            let matchesDub = !germanDubOnly || anime.hasGermanDub
+            let matchesDub = !isDubFilter || anime.hasGermanDub
             return matchesGenre && matchesDub
         }
         let list = matching.isEmpty ? Anime.curatedList : matching
@@ -72,7 +101,7 @@ class AnimeService {
 
 @MainActor
 class GenresViewModel: ObservableObject {
-    @Published var selectedGenre: String = ""
+    @Published var selectedGenre: String = "Action"
     @Published var germanDubOnly: Bool = false
     @Published var animeList: [GenreAnime] = []
     @Published var isLoading: Bool = false
@@ -85,6 +114,10 @@ class GenresViewModel: ObservableObject {
     
     var availableGenres: [String] {
         service.fetchGenres()
+    }
+    
+    init() {
+        selectGenre("Action")
     }
     
     func selectGenre(_ genre: String) {
@@ -118,7 +151,6 @@ class GenresViewModel: ObservableObject {
             currentOffset += newItems.count
             hasMore = newItems.count == pageSize
         } catch {
-            // Handle error appropriately in a real app
             print("Failed to fetch anime: \(error)")
             hasMore = false
         }
@@ -164,9 +196,13 @@ private struct GenreAnimeCardView: View {
                 .lineLimit(1)
                 .padding(.horizontal, 4)
             
-            Text(anime.isGermanDub ? "Ger Dub" : "Ger Sub")
-                .font(.caption2)
-                .foregroundColor(anime.isGermanDub ? Color(hex: "10B981") : .gray)
+            Text(anime.isGermanDub ? "🇩🇪 DUB" : "🇩🇪 SUB")
+                .font(.caption2.bold())
+                .foregroundColor(anime.isGermanDub ? Color(hex: "#10B981") : Color.cyan)
+                .padding(.horizontal, 6)
+                .padding(.vertical, 2)
+                .background(Color.white.opacity(0.08))
+                .cornerRadius(4)
                 .padding(.horizontal, 4)
                 .padding(.bottom, 6)
         }
@@ -180,14 +216,8 @@ private struct GenreAnimeCardView: View {
 
 struct GenresView: View {
     @StateObject private var viewModel = GenresViewModel()
+    @State private var isDropdownExpanded = false
     
-    // Grid layout for genre buttons (2 columns)
-    private let genreColumns = [
-        GridItem(.flexible(), spacing: 12),
-        GridItem(.flexible(), spacing: 12)
-    ]
-    
-    // Grid layout for anime cards (2 columns)
     private let animeColumns = [
         GridItem(.flexible(), spacing: 12),
         GridItem(.flexible(), spacing: 12)
@@ -195,33 +225,79 @@ struct GenresView: View {
     
     var body: some View {
         NavigationStack {
-            VStack(spacing: 16) {
-                // MARK: Genre Selection (2‑column menu)
-                LazyVGrid(columns: genreColumns, spacing: 12) {
-                    ForEach(viewModel.availableGenres, id: \.self) { genre in
-                        Button(action: {
-                            viewModel.selectGenre(genre)
-                        }) {
-                            Text(genre)
-                                .font(.subheadline.weight(.medium))
-                                .foregroundColor(viewModel.selectedGenre == genre ? .white : Color(hex: "#50C878"))
-                                .frame(maxWidth: .infinity)
-                                .padding(.vertical, 8)
-                                .background(
-                                    RoundedRectangle(cornerRadius: 8)
-                                        .fill(viewModel.selectedGenre == genre ? Color(hex: "#50C878") : Color(hex: "#1E2127"))
-                                )
-                        }
+            VStack(spacing: 14) {
+                // MARK: - Dropdown Header Button
+                Button(action: {
+                    withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+                        isDropdownExpanded.toggle()
                     }
+                }) {
+                    HStack {
+                        Image(systemName: "square.grid.2x2.fill")
+                            .foregroundColor(Color(hex: "#10B981"))
+                        Text(viewModel.selectedGenre.isEmpty ? "Genre wählen" : viewModel.selectedGenre)
+                            .font(.headline)
+                            .foregroundColor(.white)
+                        Spacer()
+                        Image(systemName: isDropdownExpanded ? "chevron.up" : "chevron.down")
+                            .font(.system(size: 14, weight: .bold))
+                            .foregroundColor(Color(hex: "#10B981"))
+                    }
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 12)
+                    .background(Color(hex: "#141519"))
+                    .cornerRadius(12)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 12)
+                            .stroke(Color(hex: "#10B981").opacity(0.35), lineWidth: 1)
+                    )
                 }
                 .padding(.horizontal)
+                
+                // MARK: - Dropdown Content (Animated 2-Column Grid)
+                if isDropdownExpanded {
+                    LazyVGrid(columns: [GridItem(.flexible(), spacing: 10), GridItem(.flexible(), spacing: 10)], spacing: 10) {
+                        ForEach(viewModel.availableGenres, id: \.self) { genre in
+                            Button(action: {
+                                withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+                                    viewModel.selectGenre(genre)
+                                    isDropdownExpanded = false
+                                }
+                            }) {
+                                HStack {
+                                    Text(genre)
+                                        .font(.subheadline.weight(.semibold))
+                                        .foregroundColor(viewModel.selectedGenre == genre ? .black : .white)
+                                        .lineLimit(1)
+                                    Spacer()
+                                    if viewModel.selectedGenre == genre {
+                                        Image(systemName: "checkmark")
+                                            .font(.caption.bold())
+                                            .foregroundColor(.black)
+                                    }
+                                }
+                                .padding(.horizontal, 12)
+                                .padding(.vertical, 10)
+                                .background(
+                                    RoundedRectangle(cornerRadius: 8)
+                                        .fill(viewModel.selectedGenre == genre ? Color(hex: "#10B981") : Color(hex: "#1A1C22"))
+                                )
+                            }
+                        }
+                    }
+                    .padding(12)
+                    .background(Color(hex: "#101216"))
+                    .cornerRadius(12)
+                    .padding(.horizontal)
+                    .transition(.opacity.combined(with: .move(edge: .top)))
+                }
                 
                 // MARK: German Dub Filter
                 Toggle(isOn: $viewModel.germanDubOnly) {
                     Text("Nur Ger Dub")
                         .foregroundColor(.white)
                 }
-                .toggleStyle(SwitchToggleStyle(tint: Color(hex: "#50C878")))
+                .toggleStyle(SwitchToggleStyle(tint: Color(hex: "#10B981")))
                 .padding(.horizontal)
                 .onChange(of: viewModel.germanDubOnly) { _ in
                     viewModel.toggleGermanDub()
@@ -230,7 +306,7 @@ struct GenresView: View {
                 // MARK: Anime Grid
                 if viewModel.animeList.isEmpty && viewModel.isLoading {
                     ProgressView()
-                        .progressViewStyle(CircularProgressViewStyle(tint: Color(hex: "#50C878")))
+                        .progressViewStyle(CircularProgressViewStyle(tint: Color(hex: "#10B981")))
                         .scaleEffect(1.5)
                         .padding()
                 } else {
@@ -259,7 +335,7 @@ struct GenresView: View {
                                         .foregroundColor(.white)
                                         .padding()
                                         .frame(maxWidth: .infinity)
-                                        .background(Color(hex: "#50C878"))
+                                        .background(Color(hex: "#10B981"))
                                         .cornerRadius(8)
                                 }
                             }
@@ -271,7 +347,7 @@ struct GenresView: View {
             .navigationTitle("Genres")
             .background(Color(hex: "#090B10").ignoresSafeArea())
         }
-        .accentColor(Color(hex: "#50C878"))
+        .accentColor(Color(hex: "#10B981"))
     }
 }
 

@@ -154,33 +154,45 @@ struct AnimeGridItem: View {
     let anime: SearchAnime
     
     var body: some View {
-        VStack {
+        VStack(alignment: .leading, spacing: 6) {
             AsyncImage(url: anime.imageURL) { phase in
                 switch phase {
                 case .empty:
-                    Color.gray.opacity(0.3)
+                    Color(hex: "#1A1C22")
+                        .frame(height: 190)
                 case .success(let image):
                     image
                         .resizable()
-                        .scaledToFit()
+                        .scaledToFill()
+                        .frame(height: 190)
+                        .clipped()
                 case .failure:
-                    Image(systemName: "photo")
-                        .resizable()
-                        .scaledToFit()
-                        .foregroundStyle(.secondary)
+                    Color(hex: "#1A1C22")
+                        .frame(height: 190)
+                        .overlay {
+                            Image(systemName: "film")
+                                .font(.title2)
+                                .foregroundStyle(.secondary)
+                        }
                 @unknown default:
-                    EmptyView()
+                    Color(hex: "#1A1C22")
+                        .frame(height: 190)
                 }
             }
-            .frame(height: 150)
-            .cornerRadius(8)
+            .clipShape(RoundedRectangle(cornerRadius: 10))
+            .overlay(
+                RoundedRectangle(cornerRadius: 10)
+                    .stroke(Color.white.opacity(0.1), lineWidth: 0.8)
+            )
             
             Text(anime.title)
-                .font(.caption)
+                .font(.caption.bold())
                 .foregroundColor(.white)
                 .lineLimit(2)
-                .multilineTextAlignment(.center)
         }
+        .padding(8)
+        .background(Color(hex: "#141519"))
+        .cornerRadius(12)
     }
 }
 

@@ -1,10 +1,19 @@
 import SwiftUI
+import AVFoundation
 
 @main
 struct DekuAnimeApp: App {
     @StateObject private var storage = StorageService.shared
 
     init() {
+        // Audio session for streaming playback with audio even on silent mode
+        do {
+            try AVAudioSession.sharedInstance().setCategory(.playback, mode: .moviePlayback, options: [])
+            try AVAudioSession.sharedInstance().setActive(true)
+        } catch {
+            print("Audio session initialization: \(error)")
+        }
+
         // Dark Theme Default für iOS Navigation & TabBar
         let appearance = UINavigationBarAppearance()
         appearance.configureWithOpaqueBackground()

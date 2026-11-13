@@ -63,14 +63,30 @@ public struct Episode: Identifiable, Hashable, Codable {
     public let hasGermanDub: Bool
     public let streamURL: URL?
     public var path: String
+    public var availableLanguages: [String]
     
-    public init(id: UUID = UUID(), number: Int, title: String, hasGermanDub: Bool = true, streamURL: URL? = nil, path: String = "") {
+    public init(id: UUID = UUID(), number: Int, title: String, hasGermanDub: Bool = true, streamURL: URL? = nil, path: String = "", availableLanguages: [String] = []) {
         self.id = id
         self.number = number
         self.title = title
         self.hasGermanDub = hasGermanDub
         self.streamURL = streamURL
         self.path = path
+        self.availableLanguages = availableLanguages
+    }
+    
+    public var languageBadges: [String] {
+        if availableLanguages.isEmpty {
+            return hasGermanDub ? ["🇩🇪 DUB"] : ["🇩🇪 SUB"]
+        }
+        return availableLanguages.compactMap { l in
+            let lower = l.lowercased()
+            if lower.contains("german dub") || lower.contains("ger dub") { return "🇩🇪 DUB" }
+            if lower.contains("german sub") || lower.contains("ger sub") { return "🇩🇪 SUB" }
+            if lower.contains("english sub") || lower.contains("eng sub") { return "🇬🇧 SUB" }
+            if lower.contains("english dub") || lower.contains("eng dub") { return "🇬🇧 DUB" }
+            return l
+        }
     }
 }
 

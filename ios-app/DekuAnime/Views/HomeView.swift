@@ -186,9 +186,9 @@ struct HomeView: View {
                                     .lineLimit(1)
                                     .frame(width: 100, alignment: .leading)
                                 
-                                Text(anime.hasGermanDub ? "Ger Dub • Sub" : "Ger Sub")
-                                    .font(.caption2)
-                                    .foregroundColor(anime.hasGermanDub ? Color(hex: "10B981") : .gray)
+                                Text(anime.hasGermanDub ? "🇩🇪 DUB • SUB" : "🇩🇪 SUB")
+                                    .font(.system(size: 9, weight: .bold))
+                                    .foregroundColor(anime.hasGermanDub ? Color(hex: "10B981") : Color.cyan)
                                     .lineLimit(1)
                             }
                         }

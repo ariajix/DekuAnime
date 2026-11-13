@@ -6,18 +6,42 @@ import SwiftUI
 
 public struct HistoryEntry: Codable, Identifiable, Hashable {
     public let id: UUID
-    public let mediaItem: MediaItem
-    public let season: Int
-    public let episode: Int
-    public let position: Double          // Seconds into the episode
+    public var animeTitle: String
+    public var posterUrl: String
+    public var seriesUrl: String
+    public var episodeUrl: String
+    public var episodeTitle: String
+    public var season: Int
+    public var episode: Int
+    public var position: Double          // Seconds into the episode
+    public var duration: Double          // Total seconds of the episode
     public let dateAdded: Date
     
-    public init(mediaItem: MediaItem, season: Int, episode: Int, position: Double) {
-        self.id = UUID()
-        self.mediaItem = mediaItem
+    public init(id: UUID = UUID(), animeTitle: String, posterUrl: String = "", seriesUrl: String = "", episodeUrl: String = "", episodeTitle: String = "", season: Int = 1, episode: Int = 1, position: Double = 0, duration: Double = 0, dateAdded: Date = Date()) {
+        self.id = id
+        self.animeTitle = animeTitle
+        self.posterUrl = posterUrl
+        self.seriesUrl = seriesUrl
+        self.episodeUrl = episodeUrl
+        self.episodeTitle = episodeTitle
         self.season = season
         self.episode = episode
         self.position = position
+        self.duration = duration
+        self.dateAdded = dateAdded
+    }
+
+    public init(mediaItem: MediaItem, season: Int, episode: Int, position: Double) {
+        self.id = UUID()
+        self.animeTitle = mediaItem.title
+        self.posterUrl = mediaItem.posterUrl
+        self.seriesUrl = mediaItem.url
+        self.episodeUrl = "\(mediaItem.url)/staffel-\(season)/episode-\(episode)"
+        self.episodeTitle = "Episode \(episode)"
+        self.season = season
+        self.episode = episode
+        self.position = position
+        self.duration = 0
         self.dateAdded = Date()
     }
 }
@@ -118,11 +142,55 @@ public final class StorageService: ObservableObject {
     // MARK: - History
     
     public func addHistory(item: MediaItem, season: Int, episode: Int, position: Double) {
-        let entry = HistoryEntry(mediaItem: item, season: season, episode: episode, position: position)
-        history.append(entry)
-        // Keep most recent 100 entries (optional)
+        recordWatch(
+            animeTitle: item.title,
+            posterUrl: item.posterUrl,
+            seriesUrl: item.url,
+            episodeUrl: "\(item.url)/staffel-\(season)/episode-\(episode)",
+            episodeTitle: "Episode \(episode)",
+            season: season,
+            episode: episode,
+            position: position,
+            duration: 0
+        )
+    }
+    
+    public func recordWatch(
+        animeTitle: String,
+        posterUrl: String = "",
+        seriesUrl: String = "",
+        episodeUrl: String = "",
+        episodeTitle: String = "",
+        season: Int = 1,
+        episode: Int = 1,
+        position: Double = 0,
+        duration: Double = 0
+    ) {
+        if let idx = history.firstIndex(where: {
+            (!episodeUrl.isEmpty && $0.episodeUrl == episodeUrl) ||
+            ($0.animeTitle == animeTitle && $0.season == season && $0.episode == episode)
+        }) {
+            var existing = history.remove(at: idx)
+            existing.position = position
+            if duration > 0 { existing.duration = duration }
+            if !posterUrl.isEmpty { existing.posterUrl = posterUrl }
+            history.insert(existing, at: 0)
+        } else {
+            let entry = HistoryEntry(
+                animeTitle: animeTitle,
+                posterUrl: posterUrl,
+                seriesUrl: seriesUrl,
+                episodeUrl: episodeUrl,
+                episodeTitle: episodeTitle,
+                season: season,
+                episode: episode,
+                position: position,
+                duration: duration
+            )
+            history.insert(entry, at: 0)
+        }
         if history.count > 100 {
-            history.removeFirst(history.count - 100)
+            history = Array(history.prefix(100))
         }
     }
     

@@ -66,17 +66,12 @@ struct WatchlistView: View {
             LazyVGrid(columns: columns, spacing: 12) {
                 ForEach(storage.watchlistAnimes) { anime in
                     NavigationLink(value: anime) {
-                        WatchlistItemView(anime: anime)
-                    }
-                    .buttonStyle(.plain)
-                    .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-                        Button(role: .destructive) {
+                        WatchlistItemView(anime: anime, onRemove: {
                             itemToDelete = anime
                             showingDeleteConfirmation = true
-                        } label: {
-                            Label("Entfernen", systemImage: "trash")
-                        }
+                        })
                     }
+                    .buttonStyle(.plain)
                 }
             }
             .animation(.default, value: storage.watchlistAnimes)
@@ -90,32 +85,74 @@ struct WatchlistView: View {
 // MARK: - WatchlistItemView
 private struct WatchlistItemView: View {
     let anime: AnimeItem
+    var onRemove: (() -> Void)? = nil
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            AsyncImage(url: anime.coverURL) { phase in
-                switch phase {
-                case .empty:
-                    Color.gray.opacity(0.2)
-                case .success(let image):
-                    image
-                        .resizable()
-                        .scaledToFit()
-                case .failure:
-                    Image(systemName: "photo")
-                        .foregroundStyle(.secondary)
-                @unknown default:
-                    EmptyView()
+        VStack(alignment: .leading, spacing: 8) {
+            ZStack(alignment: .topTrailing) {
+                AsyncImage(url: anime.coverURL) { phase in
+                    switch phase {
+                    case .empty:
+                        Color(hex: "#1A1C22")
+                            .frame(height: 190)
+                    case .success(let image):
+                        image
+                            .resizable()
+                            .scaledToFill()
+                            .frame(height: 190)
+                            .clipped()
+                    case .failure:
+                        Color(hex: "#1A1C22")
+                            .frame(height: 190)
+                            .overlay {
+                                Image(systemName: "film")
+                                    .font(.title2)
+                                    .foregroundStyle(.secondary)
+                            }
+                    @unknown default:
+                        Color(hex: "#1A1C22")
+                            .frame(height: 190)
+                    }
+                }
+                .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 10)
+                        .stroke(Color.white.opacity(0.1), lineWidth: 0.8)
+                )
+
+                // Delete Button on Card
+                if let onRemove = onRemove {
+                    Button(action: onRemove) {
+                        Image(systemName: "trash.fill")
+                            .font(.system(size: 11, weight: .bold))
+                            .foregroundColor(.white)
+                            .padding(6)
+                            .background(Color.red.opacity(0.85))
+                            .clipShape(Circle())
+                    }
+                    .padding(6)
                 }
             }
-            .frame(height: 120)
-            .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
 
-            Text(anime.title)
-                .font(.caption)
-                .lineLimit(2)
-                .foregroundStyle(.primary)
+            VStack(alignment: .leading, spacing: 3) {
+                Text(anime.title)
+                    .font(.caption.bold())
+                    .lineLimit(2)
+                    .foregroundColor(.white)
+
+                Text(anime.hasGermanDub ? "🇩🇪 DUB" : "🇩🇪 SUB")
+                    .font(.system(size: 10, weight: .bold))
+                    .foregroundColor(anime.hasGermanDub ? Color(hex: "#10B981") : Color.cyan)
+                    .padding(.horizontal, 5)
+                    .padding(.vertical, 2)
+                    .background(Color.white.opacity(0.08))
+                    .cornerRadius(4)
+            }
         }
+        .padding(8)
+        .background(Color(hex: "#141519"))
+        .cornerRadius(12)
+        .shadow(color: .black.opacity(0.4), radius: 3, x: 0, y: 2)
     }
 }
 

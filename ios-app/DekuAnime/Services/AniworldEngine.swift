@@ -1,4 +1,4 @@
-﻿import Foundation
+import Foundation
 
 // MARK: - Redirect Delegate
 private final class RedirectCaptureDelegate: NSObject, URLSessionTaskDelegate {
@@ -25,6 +25,7 @@ public actor AniworldEngine {
     
     private var allAnimesCache: [MediaItem] = []
     private var cachedHomePageRows: [HomeRow] = []
+    private var posterCache: [String: String] = [:]
     
     private init() {
         let config = URLSessionConfiguration.default
@@ -164,6 +165,8 @@ public actor AniworldEngine {
         let kw = keyword.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !kw.isEmpty else { return [] }
         
+        var rawResults: [MediaItem] = []
+        
         // 1. Try Aniworld AJAX search
         if let ajaxUrl = URL(string: "\(aniworldBase)/ajax/search") {
             var req = URLRequest(url: ajaxUrl)
@@ -176,38 +179,81 @@ public actor AniworldEngine {
             
             if let (data, _) = try? await session.data(for: req),
                let jsonArray = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]] {
-                var results: [MediaItem] = []
                 for obj in jsonArray {
                     let title = (obj["title"] as? String) ?? ""
                     let link = (obj["link"] as? String) ?? ""
                     let desc = (obj["description"] as? String) ?? ""
-                    if !title.isEmpty && !link.isEmpty {
+                    // Filter: only series, no single episode or support threads
+                    if !title.isEmpty && !link.isEmpty && link.hasPrefix("/anime/stream/") && !link.contains("/staffel-") && !link.contains("/support/") {
                         let fullUrl = link.hasPrefix("/") ? link : "/anime/stream/\(link)"
-                        let slug = fullUrl.replacingOccurrences(of: "/anime/stream/", with: "").trimmingCharacters(in: CharacterSet(charactersIn: "/"))
-                        results.append(
+                        let cachedCover = posterCache[fullUrl] ?? ""
+                        rawResults.append(
                             MediaItem(
                                 title: unescapeHTML(title),
                                 url: fullUrl,
-                                posterUrl: "\(aniworldBase)/public/img/cover/\(slug)-poster.jpg",
+                                posterUrl: cachedCover,
                                 description: unescapeHTML(desc),
-                                site: "aniworld"
+                                site: "aniworld",
+                                tags: ["Ger Dub", "Ger Sub"]
                             )
                         )
                     }
                 }
-                if !results.isEmpty {
-                    return results
+            }
+        }
+        
+        // 2. Client-side search fallback across all AniWorld animes if AJAX gave no results
+        if rawResults.isEmpty {
+            let catalog = try await fetchAllAnimes()
+            let filtered = catalog.filter {
+                $0.title.localizedCaseInsensitiveContains(kw) ||
+                $0.description.localizedCaseInsensitiveContains(kw)
+            }
+            rawResults = Array(filtered.prefix(25))
+        }
+        
+        let topResults = Array(rawResults.prefix(20))
+        var finalResults = topResults
+        
+        // Resolve actual cover URLs concurrently for any search result that lacks one
+        await withTaskGroup(of: (Int, String).self) { group in
+            for (idx, itm) in topResults.enumerated() {
+                if itm.posterUrl.isEmpty || itm.posterUrl.contains("placeholder") || itm.posterUrl.hasSuffix("-poster.jpg") {
+                    group.addTask {
+                        let cover = await self.fetchCoverOnly(for: itm.url)
+                        return (idx, cover)
+                    }
+                }
+            }
+            for await (idx, cover) in group {
+                if !cover.isEmpty {
+                    finalResults[idx].posterUrl = cover
                 }
             }
         }
         
-        // 2. Client-side search across all AniWorld animes
-        let catalog = try await fetchAllAnimes()
-        let filtered = catalog.filter {
-            $0.title.localizedCaseInsensitiveContains(kw) ||
-            $0.description.localizedCaseInsensitiveContains(kw)
+        return finalResults
+    }
+    
+    /// Quick cover resolution for search & watchlist
+    public func fetchCoverOnly(for seriesPath: String) async -> String {
+        let clean = seriesPath.hasPrefix("/") ? seriesPath : "/\(seriesPath)"
+        if let cached = posterCache[clean], !cached.isEmpty {
+            return cached
         }
-        return Array(filtered.prefix(40))
+        guard let url = URL(string: "\(aniworldBase)\(clean)") else { return "" }
+        var req = URLRequest(url: url)
+        req.setValue(userAgent, forHTTPHeaderField: "User-Agent")
+        if let (data, _) = try? await session.data(for: req),
+           let html = String(data: data, encoding: .utf8) {
+            let coverPattern = #"(?:data-src|src)="(/public/img/cover/[^"]+)""#
+            if let match = html.extractFirstGroup(pattern: coverPattern) {
+                let full = "\(aniworldBase)\(match)"
+                posterCache[clean] = full
+                return full
+            }
+        }
+        return ""
     }
     
     /// Fetch anime by genre
@@ -264,71 +310,62 @@ public actor AniworldEngine {
         var coverURL: URL? = nil
         let coverPattern = #"(?:data-src|src)="(/public/img/cover/[^"]+)""#
         if let coverMatch = html.extractFirstGroup(pattern: coverPattern) {
-            coverURL = URL(string: "\(aniworldBase)\(coverMatch)")
+            let fullCover = "\(aniworldBase)\(coverMatch)"
+            coverURL = URL(string: fullCover)
+            posterCache[cleanPath] = fullCover
         }
         
         // 2. Title
         let titlePattern = #"<div class="series-title">[\s\S]*?<span>([^<]+)</span>"#
         let title = html.extractFirstGroup(pattern: titlePattern) ?? cleanPath.replacingOccurrences(of: "/anime/stream/", with: "").replacingOccurrences(of: "-", with: " ").capitalized
         
-        // 3. Synopsis
-        let descPattern = #"<p\s+class="seriessynopsis"[^>]*>([\s\S]*?)</p>"#
-        let synopsis = unescapeHTML(html.extractFirstGroup(pattern: descPattern) ?? "Anime auf AniWorld streamen.")
+        // 3. Synopsis / Description (exact extraction from data-full-description or seri_des)
+        var synopsis = ""
+        if let fullDesc = html.extractFirstGroup(pattern: #"data-full-description="([^"]+)""#), !fullDesc.isEmpty {
+            synopsis = unescapeHTML(fullDesc)
+        } else if let pDesc = html.extractFirstGroup(pattern: #"<p\s+class="seri_des"[^>]*>([\s\S]*?)</p>"#), !pDesc.isEmpty {
+            synopsis = unescapeHTML(pDesc)
+        } else if let sDesc = html.extractFirstGroup(pattern: #"<p\s+class="seriessynopsis"[^>]*>([\s\S]*?)</p>"#), !sDesc.isEmpty {
+            synopsis = unescapeHTML(sDesc)
+        } else {
+            synopsis = "Anime auf AniWorld streamen."
+        }
         
         // 4. Seasons
         let seasonPattern = #"href="(/anime/stream/[^/"]+/staffel-(\d+))""#
-        guard let seasonRegex = try? NSRegularExpression(pattern: seasonPattern) else {
-            return Anime(title: title, posterURL: coverURL, synopsis: synopsis, url: cleanPath)
-        }
-        let nsHtml = html as NSString
-        let seasonMatches = seasonRegex.matches(in: html, range: NSRange(location: 0, length: nsHtml.length))
-        
         var seasonNums = Set<Int>()
-        for m in seasonMatches where m.numberOfRanges > 2 {
-            if let num = Int(nsHtml.substring(with: m.range(at: 2))) {
-                seasonNums.insert(num)
+        if let seasonRegex = try? NSRegularExpression(pattern: seasonPattern) {
+            let nsHtml = html as NSString
+            let seasonMatches = seasonRegex.matches(in: html, range: NSRange(location: 0, length: nsHtml.length))
+            for m in seasonMatches where m.numberOfRanges > 2 {
+                if let num = Int(nsHtml.substring(with: m.range(at: 2))) {
+                    seasonNums.insert(num)
+                }
             }
+        }
+        if html.contains("/filme") {
+            seasonNums.insert(0)
         }
         if seasonNums.isEmpty { seasonNums.insert(1) }
         let sortedSeasonNums = seasonNums.sorted()
         
         // 5. Episodes on current season page
-        let epPattern = #"href="(/anime/stream/[^/"]+/staffel-\d+/episode-(\d+))"[^>]*title="([^"]*)""#
-        guard let epRegex = try? NSRegularExpression(pattern: epPattern) else {
-            return Anime(title: title, posterURL: coverURL, synopsis: synopsis, url: cleanPath)
-        }
-        let epMatches = epRegex.matches(in: html, range: NSRange(location: 0, length: nsHtml.length))
-        var currentSeasonEpisodes: [Episode] = []
-        var seenEpNums = Set<Int>()
-        
-        for m in epMatches where m.numberOfRanges > 2 {
-            let epPath = nsHtml.substring(with: m.range(at: 1))
-            if let epNum = Int(nsHtml.substring(with: m.range(at: 2))), seenEpNums.insert(epNum).inserted {
-                let epTitle = m.numberOfRanges > 3 ? nsHtml.substring(with: m.range(at: 3)) : "Episode \(epNum)"
-                currentSeasonEpisodes.append(
-                    Episode(
-                        number: epNum,
-                        title: unescapeHTML(epTitle),
-                        hasGermanDub: true,
-                        path: epPath
-                    )
-                )
-            }
-        }
-        
-        if currentSeasonEpisodes.isEmpty {
-            currentSeasonEpisodes = (1...12).map {
-                Episode(number: $0, title: "Episode \($0)", hasGermanDub: true, path: "\(cleanPath)/staffel-1/episode-\($0)")
-            }
-        }
+        let currentSeasonEpisodes = parseEpisodes(from: html, defaultPath: "\(cleanPath)/staffel-1")
         
         var builtSeasons: [Season] = []
         for sNum in sortedSeasonNums {
-            if sNum == 1 {
-                builtSeasons.append(Season(number: 1, episodes: currentSeasonEpisodes))
+            if sNum == 1 || (sortedSeasonNums.first == sNum && currentSeasonEpisodes.count > 0) {
+                builtSeasons.append(Season(number: sNum, episodes: currentSeasonEpisodes))
             } else {
+                // Initial placeholder so UI can show the season pill
                 let eps = (1...12).map {
-                    Episode(number: $0, title: "Staffel \(sNum) Episode \($0)", hasGermanDub: true, path: "\(cleanPath)/staffel-\(sNum)/episode-\($0)")
+                    Episode(
+                        number: $0,
+                        title: "Folge \($0)",
+                        hasGermanDub: true,
+                        path: sNum == 0 ? "\(cleanPath)/filme" : "\(cleanPath)/staffel-\(sNum)/episode-\($0)",
+                        availableLanguages: ["Ger Dub", "Ger Sub"]
+                    )
                 }
                 builtSeasons.append(Season(number: sNum, episodes: eps))
             }
@@ -341,6 +378,112 @@ public actor AniworldEngine {
             seasons: builtSeasons,
             url: cleanPath
         )
+    }
+    
+    /// Dynamically loads episodes for a specific season of an anime
+    public func fetchSeasonEpisodes(seriesPath: String, seasonNumber: Int) async throws -> [Episode] {
+        let clean = seriesPath.hasPrefix("/") ? seriesPath : "/\(seriesPath)"
+        let targetPath = seasonNumber == 0 ? "\(clean)/filme" : "\(clean)/staffel-\(seasonNumber)"
+        guard let url = URL(string: "\(aniworldBase)\(targetPath)") else { return [] }
+        var req = URLRequest(url: url)
+        req.setValue(userAgent, forHTTPHeaderField: "User-Agent")
+        let (data, _) = try await session.data(for: req)
+        guard let html = String(data: data, encoding: .utf8) else { return [] }
+        return parseEpisodes(from: html, defaultPath: targetPath)
+    }
+    
+    /// Parses real episode rows, titles, and language flags from AniWorld HTML
+    public func parseEpisodes(from html: String, defaultPath: String) -> [Episode] {
+        var episodes: [Episode] = []
+        let marker = "itemprop=\"episode\""
+        var pos = html.startIndex
+        var seenNums = Set<Int>()
+        
+        while let markerRange = html.range(of: marker, range: pos..<html.endIndex) {
+            guard let trStart = html.range(of: "<tr", options: .backwards, range: html.startIndex..<markerRange.lowerBound),
+                  let trEnd = html.range(of: "</tr>", range: markerRange.upperBound..<html.endIndex) else {
+                pos = markerRange.upperBound
+                continue
+            }
+            let trHtml = String(html[trStart.lowerBound..<trEnd.upperBound])
+            pos = trEnd.upperBound
+            
+            var epNum = 0
+            if let metaNum = trHtml.extractFirstGroup(pattern: #"itemprop="episodeNumber"\s+content="(\d+)""#), let n = Int(metaNum) {
+                epNum = n
+            } else if let folgeStr = trHtml.extractFirstGroup(pattern: #"Folge\s*(\d+)"#), let n = Int(folgeStr) {
+                epNum = n
+            } else if let epStr = trHtml.extractFirstGroup(pattern: #"episode-(\d+)"#), let n = Int(epStr) {
+                epNum = n
+            }
+            
+            if epNum > 0 && !seenNums.insert(epNum).inserted {
+                continue
+            }
+            
+            var epPath = trHtml.extractFirstGroup(pattern: #"href="(/anime/stream/[^"]+)""#) ?? ""
+            if epPath.isEmpty {
+                epPath = "\(defaultPath)/episode-\(epNum)"
+            }
+            
+            let strongTitle = trHtml.extractFirstGroup(pattern: #"<strong>([\s\S]*?)</strong>"#)
+            let spanTitle = trHtml.extractFirstGroup(pattern: #"<span>([\s\S]*?)</span>"#)
+            
+            var cleanTitle = ""
+            if let s = strongTitle, !s.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                cleanTitle = unescapeHTML(s).trimmingCharacters(in: .whitespacesAndNewlines)
+            } else if let sp = spanTitle, !sp.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                cleanTitle = unescapeHTML(sp).trimmingCharacters(in: .whitespacesAndNewlines)
+            }
+            if cleanTitle.isEmpty {
+                cleanTitle = "Episode \(epNum)"
+            }
+            
+            var langs: [String] = []
+            let lower = trHtml.lowercased()
+            if lower.contains("german.svg") {
+                langs.append("Ger Dub")
+            }
+            if lower.contains("japanese-german.svg") {
+                langs.append("Ger Sub")
+            }
+            if lower.contains("japanese-english.svg") {
+                langs.append("Eng Sub")
+            }
+            if lower.contains("english.svg") {
+                langs.append("Eng Dub")
+            }
+            if langs.isEmpty {
+                langs.append("Ger Sub")
+            }
+            
+            episodes.append(
+                Episode(
+                    number: epNum,
+                    title: cleanTitle,
+                    hasGermanDub: langs.contains("Ger Dub"),
+                    path: epPath,
+                    availableLanguages: langs
+                )
+            )
+        }
+        
+        if episodes.isEmpty {
+            let epPattern = #"href="(/anime/stream/[^/"]+/staffel-\d+/episode-(\d+))"[^>]*title="([^"]*)""#
+            if let epRegex = try? NSRegularExpression(pattern: epPattern) {
+                let nsHtml = html as NSString
+                let epMatches = epRegex.matches(in: html, range: NSRange(location: 0, length: nsHtml.length))
+                for m in epMatches where m.numberOfRanges > 2 {
+                    let path = nsHtml.substring(with: m.range(at: 1))
+                    if let n = Int(nsHtml.substring(with: m.range(at: 2))), seenNums.insert(n).inserted {
+                        let t = m.numberOfRanges > 3 ? nsHtml.substring(with: m.range(at: 3)) : "Folge \(n)"
+                        episodes.append(Episode(number: n, title: unescapeHTML(t), hasGermanDub: true, path: path, availableLanguages: ["Ger Dub", "Ger Sub"]))
+                    }
+                }
+            }
+        }
+        
+        return episodes.sorted { $0.number < $1.number }
     }
     
     /// Resolves direct, playable HLS (.m3u8) stream for an episode
@@ -482,6 +625,10 @@ public actor AniworldEngine {
             } else {
                 let slug = path.replacingOccurrences(of: "/anime/stream/", with: "").trimmingCharacters(in: CharacterSet(charactersIn: "/"))
                 posterUrl = "\(aniworldBase)/public/img/cover/\(slug)-poster.jpg"
+            }
+            
+            if !posterUrl.isEmpty && !posterUrl.contains("placeholder") && !posterUrl.hasSuffix("-poster.jpg") {
+                posterCache[path] = posterUrl
             }
             
             results.append(

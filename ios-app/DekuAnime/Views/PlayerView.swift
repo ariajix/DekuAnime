@@ -1,37 +1,15 @@
 import SwiftUI
 import AVKit
 import Combine
+import AVFoundation
 
-// MARK: - Helpers
+// MARK: - Ripple Model
 
-extension Color {
-    init(hex: UInt, alpha: Double = 1.0) {
-        let r = Double((hex >> 16) & 0xff) / 255
-        let g = Double((hex >> 8) & 0xff) / 255
-        let b = Double(hex & 0xff) / 255
-        self.init(.sRGB, red: r, green: g, blue: b, opacity: alpha)
-    }
-}
-
-struct Ripple: Identifiable {
+struct Ripple: Identifiable, Equatable {
     let id = UUID()
     var position: CGPoint
-    var scale: CGFloat = 0.1
+    var scale: CGFloat = 0.5
     var opacity: Double = 1.0
-}
-
-// MARK: - Services (Placeholder Protocols)
-
-protocol AniSkipServiceProtocol {
-    var isEnabled: Bool { get }
-    func shouldShowSkipButton(for player: AVPlayer) -> Bool
-    func skipIntro(for player: AVPlayer)
-    func autoSkipIfNeeded(for player: AVPlayer)
-}
-
-protocol StorageServiceProtocol {
-    func savePosition(for videoID: String, position: CMTime)
-    func loadPosition(for videoID: String) -> CMTime?
 }
 
 // MARK: - ViewModel
@@ -39,30 +17,60 @@ protocol StorageServiceProtocol {
 final class PlayerViewModel: ObservableObject {
     @Published var player: AVPlayer
     @Published var isPlaying = false
-    @Published var showSkipIntroButton = false
     @Published var showSettings = false
     @Published var showSleepTimer = false
     @Published var ripples: [Ripple] = []
     @Published var playbackRate: Float = 1.0
     @Published var selectedAudioLanguage: String = "Original"
+    @Published var currentTime: Double = 0
+    @Published var duration: Double = 0
+    @Published var isDraggingSlider = false
     
-    private let videoID: String
-    private let aniSkipService: AniSkipServiceProtocol
-    private let storageService: StorageServiceProtocol
+    let animeTitle: String
+    let episodeTitle: String
+    let posterUrl: String
+    let seriesUrl: String
+    let episodeUrl: String
+    let seasonNumber: Int
+    let episodeNumber: Int
+    let initialTime: Double
+    
     private var cancellables = Set<AnyCancellable>()
     private var sleepTimerTask: Task<Void, Never>?
+    private var timeObserverToken: Any?
     
-
-
-
     init(url: URL,
-         videoID: String,
-         aniSkipService: AniSkipServiceProtocol,
-         storageService: StorageServiceProtocol) {
-        self.player = AVPlayer(url: url)
-        self.videoID = videoID
-        self.aniSkipService = aniSkipService
-        self.storageService = storageService
+         animeTitle: String = "Anime",
+         episodeTitle: String = "Episode",
+         posterUrl: String = "",
+         seriesUrl: String = "",
+         episodeUrl: String = "",
+         seasonNumber: Int = 1,
+         episodeNumber: Int = 1,
+         initialTime: Double = 0) {
+        
+        // Ensure iOS audio plays via speaker even when mute/silent switch is on
+        do {
+            try AVAudioSession.sharedInstance().setCategory(.playback, mode: .moviePlayback, options: [])
+            try AVAudioSession.sharedInstance().setActive(true)
+        } catch {
+            print("Failed to set audio session category: \(error)")
+        }
+        
+        let playerItem = AVPlayerItem(url: url)
+        let player = AVPlayer(playerItem: playerItem)
+        player.volume = 1.0
+        player.isMuted = false
+        self.player = player
+        
+        self.animeTitle = animeTitle
+        self.episodeTitle = episodeTitle
+        self.posterUrl = posterUrl
+        self.seriesUrl = seriesUrl
+        self.episodeUrl = episodeUrl
+        self.seasonNumber = seasonNumber
+        self.episodeNumber = episodeNumber
+        self.initialTime = initialTime
         
         // Observe playback state
         player.publisher(for: \.timeControlStatus)
@@ -71,6 +79,42 @@ final class PlayerViewModel: ObservableObject {
                 self?.isPlaying = (status == .playing)
             }
             .store(in: &cancellables)
+        
+        // Observe duration when ready
+        player.publisher(for: \.currentItem)
+            .compactMap { $0 }
+            .flatMap { $0.publisher(for: \.duration) }
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] dur in
+                let secs = dur.seconds
+                if !secs.isNaN && secs > 0 {
+                    self?.duration = secs
+                }
+            }
+            .store(in: &cancellables)
+        
+        // Time observer for Progress Bar / Scrubber
+        let interval = CMTime(seconds: 0.5, preferredTimescale: 600)
+        timeObserverToken = player.addPeriodicTimeObserver(forInterval: interval, queue: .main) { [weak self] time in
+            guard let self = self, !self.isDraggingSlider else { return }
+            let secs = time.seconds
+            if !secs.isNaN && secs >= 0 {
+                self.currentTime = secs
+            }
+            if let d = self.player.currentItem?.duration.seconds, !d.isNaN, d > 0 {
+                self.duration = d
+            }
+            // Auto-persist history progress every 15 seconds
+            if Int(secs) > 5 && Int(secs) % 15 == 0 {
+                self.savePlaybackPosition()
+            }
+        }
+    }
+    
+    deinit {
+        if let token = timeObserverToken {
+            player.removeTimeObserver(token)
+        }
     }
     
     // MARK: - Playback Controls
@@ -78,6 +122,7 @@ final class PlayerViewModel: ObservableObject {
     func togglePlayPause() {
         if isPlaying {
             player.pause()
+            savePlaybackPosition()
         } else {
             player.playImmediately(atRate: playbackRate)
         }
@@ -86,13 +131,31 @@ final class PlayerViewModel: ObservableObject {
     func seek(by seconds: Double) {
         let current = player.currentTime()
         var newTime = CMTimeAdd(current, CMTimeMakeWithSeconds(seconds, preferredTimescale: 600))
-        let duration = player.currentItem?.duration ?? .zero
+        let maxDuration = player.currentItem?.duration ?? .zero
         if newTime < .zero { newTime = .zero }
-        if newTime > duration { newTime = duration }
+        if maxDuration > .zero && newTime > maxDuration { newTime = maxDuration }
         player.seek(to: newTime, toleranceBefore: .zero, toleranceAfter: .zero)
     }
     
-    // MARK: - Ripple
+    func seek(to seconds: Double) {
+        let target = CMTime(seconds: seconds, preferredTimescale: 600)
+        player.seek(to: target, toleranceBefore: .zero, toleranceAfter: .zero)
+    }
+    
+    func formatTime(_ seconds: Double) -> String {
+        guard !seconds.isNaN && seconds >= 0 else { return "00:00" }
+        let total = Int(seconds)
+        let h = total / 3600
+        let m = (total % 3600) / 60
+        let s = total % 60
+        if h > 0 {
+            return String(format: "%d:%02d:%02d", h, m, s)
+        } else {
+            return String(format: "%02d:%02d", m, s)
+        }
+    }
+    
+    // MARK: - Ripple Effect
     
     func addRipple(at point: CGPoint) {
         var ripple = Ripple(position: point)
@@ -106,32 +169,17 @@ final class PlayerViewModel: ObservableObject {
         }
     }
     
-    // MARK: - Intro Skip
-    
-    func evaluateIntroSkip() {
-        guard aniSkipService.isEnabled else { return }
-        showSkipIntroButton = aniSkipService.shouldShowSkipButton(for: player)
-        if showSkipIntroButton == false {
-            aniSkipService.autoSkipIfNeeded(for: player)
-        }
-    }
-    
-    func skipIntro() {
-        aniSkipService.skipIntro(for: player)
-        showSkipIntroButton = false
-    }
-    
     // MARK: - Sleep Timer
     
     func startSleepTimer(minutes: Int) {
-        sleepTimerTask?.cancel()
-        let duration = TimeInterval(minutes * 60)
-        sleepTimerTask = Task { @MainActor [weak self] in
-            try? await Task.sleep(nanoseconds: UInt64(duration * 1_000_000_000))
-            guard let self = self, !Task.isCancelled else { return }
-            self.player.pause()
-            self.isPlaying = false
-            self.showSleepTimer = false
+        cancelSleepTimer()
+        sleepTimerTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: UInt64(minutes) * 60 * 1_000_000_000)
+            await MainActor.run {
+                self?.player.pause()
+                self?.isPlaying = false
+                self?.showSleepTimer = false
+            }
         }
     }
     
@@ -140,17 +188,31 @@ final class PlayerViewModel: ObservableObject {
         sleepTimerTask = nil
     }
     
-    // MARK: - Persistence
+    // MARK: - Persistence & History
     
     func savePlaybackPosition() {
-        let pos = player.currentTime()
-        storageService.savePosition(for: videoID, position: pos)
+        let pos = player.currentTime().seconds
+        guard pos > 1 else { return }
+        Task { @MainActor in
+            StorageService.shared.recordWatch(
+                animeTitle: self.animeTitle,
+                posterUrl: self.posterUrl,
+                seriesUrl: self.seriesUrl,
+                episodeUrl: self.episodeUrl,
+                episodeTitle: self.episodeTitle,
+                season: self.seasonNumber,
+                episode: self.episodeNumber,
+                position: pos,
+                duration: self.duration
+            )
+        }
     }
     
     func restorePlaybackPosition() {
-        if let saved = storageService.loadPosition(for: videoID) {
-            player.seek(to: saved, toleranceBefore: .zero, toleranceAfter: .zero)
+        if initialTime > 0 {
+            seek(to: initialTime)
         }
+        player.playImmediately(atRate: playbackRate)
     }
     
     // MARK: - Rate & Language
@@ -174,29 +236,30 @@ struct PlayerView: View {
     let animeTitle: String
     let episodeTitle: String
 
-    init(url: URL, animeTitle: String = "Anime", episodeTitle: String = "Episode") {
+    init(
+        url: URL,
+        animeTitle: String = "Anime",
+        episodeTitle: String = "Episode",
+        posterUrl: String = "",
+        seriesUrl: String = "",
+        episodeUrl: String = "",
+        seasonNumber: Int = 1,
+        episodeNumber: Int = 1,
+        initialTime: Double = 0
+    ) {
         self.animeTitle = animeTitle
         self.episodeTitle = episodeTitle
         _vm = StateObject(wrappedValue: PlayerViewModel(
             url: url,
-            videoID: url.absoluteString,
-            aniSkipService: MockAniSkipService(),
-            storageService: MockStorageService()
+            animeTitle: animeTitle,
+            episodeTitle: episodeTitle,
+            posterUrl: posterUrl,
+            seriesUrl: seriesUrl,
+            episodeUrl: episodeUrl,
+            seasonNumber: seasonNumber,
+            episodeNumber: episodeNumber,
+            initialTime: initialTime
         ))
-    }
-
-    init(url: URL,
-         videoID: String,
-         animeTitle: String = "Anime",
-         episodeTitle: String = "Episode",
-         aniSkipService: AniSkipServiceProtocol,
-         storageService: StorageServiceProtocol) {
-        self.animeTitle = animeTitle
-        self.episodeTitle = episodeTitle
-        _vm = StateObject(wrappedValue: PlayerViewModel(url: url,
-                                                        videoID: videoID,
-                                                        aniSkipService: aniSkipService,
-                                                        storageService: storageService))
     }
     
     var body: some View {
@@ -206,7 +269,6 @@ struct PlayerView: View {
                 .ignoresSafeArea()
                 .onAppear {
                     vm.restorePlaybackPosition()
-                    vm.evaluateIntroSkip()
                     scheduleHideControls()
                 }
                 .onDisappear {
@@ -216,16 +278,16 @@ struct PlayerView: View {
                 .overlay(gestureOverlay)
                 .overlay(rippleOverlay)
                 .overlay(topControls, alignment: .top)
-                .overlay(introSkipButton)
                 .overlay(bottomControls, alignment: .bottom)
                 .overlay(settingsSheet)
                 .overlay(sleepTimerSheet)
         }
         .gesture(
-            DragGesture(minimumDistance: 30)
+            DragGesture(minimumDistance: 35)
                 .onEnded { value in
                     if value.translation.height > 60 {
                         vm.player.pause()
+                        vm.savePlaybackPosition()
                         dismiss()
                     }
                 }
@@ -241,6 +303,7 @@ struct PlayerView: View {
                 HStack(spacing: 16) {
                     Button(action: {
                         vm.player.pause()
+                        vm.savePlaybackPosition()
                         dismiss()
                     }) {
                         Image(systemName: "chevron.left")
@@ -266,6 +329,7 @@ struct PlayerView: View {
                     
                     Button(action: {
                         vm.player.pause()
+                        vm.savePlaybackPosition()
                         dismiss()
                     }) {
                         Image(systemName: "xmark")
@@ -298,7 +362,7 @@ struct PlayerView: View {
     private func scheduleHideControls() {
         hideControlsTask?.cancel()
         hideControlsTask = Task {
-            try? await Task.sleep(nanoseconds: 3_000_000_000)
+            try? await Task.sleep(nanoseconds: 3_500_000_000)
             await MainActor.run {
                 withAnimation {
                     showControls = false
@@ -340,7 +404,7 @@ struct PlayerView: View {
         ZStack {
             ForEach(vm.ripples) { ripple in
                 Circle()
-                    .stroke(Color(hex: 0x10B981).opacity(ripple.opacity), lineWidth: 3)
+                    .stroke(Color(hex: "#10B981").opacity(ripple.opacity), lineWidth: 3)
                     .frame(width: 100, height: 100)
                     .scaleEffect(ripple.scale)
                     .position(ripple.position)
@@ -348,57 +412,77 @@ struct PlayerView: View {
         }
     }
     
-    // MARK: - Intro Skip Button
-    
-    private var introSkipButton: some View {
-        Group {
-            if vm.showSkipIntroButton && showControls {
-                Button(action: {
-                    vm.skipIntro()
-                }) {
-                    Text("Intro überspringen")
-                        .font(.headline)
-                        .padding(.horizontal, 16)
-                        .padding(.vertical, 8)
-                        .background(Color(hex: 0x10B981).opacity(0.9))
-                        .foregroundColor(.white)
-                        .cornerRadius(8)
-                }
-                .padding(.top, 50)
-                .transition(.move(edge: .top).combined(with: .opacity))
-            }
-        }
-    }
-    
-    // MARK: - Bottom Controls
+    // MARK: - Bottom Controls with Scrubber / Progress Bar
     
     private var bottomControls: some View {
         VStack {
             Spacer()
             if showControls {
-                HStack(spacing: 30) {
-                    Button(action: previousEpisode) {
-                        Image(systemName: "backward.end.alt")
-                            .font(.title2)
+                VStack(spacing: 10) {
+                    // Progress Bar Row
+                    HStack(spacing: 12) {
+                        Text(vm.formatTime(vm.currentTime))
+                            .font(.caption.monospacedDigit().bold())
+                            .foregroundColor(.white)
+                        
+                        Slider(
+                            value: Binding(
+                                get: { vm.currentTime },
+                                set: { newVal in
+                                    vm.isDraggingSlider = true
+                                    vm.currentTime = newVal
+                                }
+                            ),
+                            in: 0...max(vm.duration, 1),
+                            onEditingChanged: { editing in
+                                vm.isDraggingSlider = editing
+                                if !editing {
+                                    vm.seek(to: vm.currentTime)
+                                }
+                            }
+                        )
+                        .accentColor(Color(hex: "#10B981"))
+                        
+                        Text(vm.formatTime(vm.duration))
+                            .font(.caption.monospacedDigit())
+                            .foregroundColor(.gray)
                     }
-                    Button(action: vm.togglePlayPause) {
-                        Image(systemName: vm.isPlaying ? "pause.fill" : "play.fill")
-                            .font(.largeTitle)
+                    .padding(.horizontal, 20)
+                    
+                    // Buttons Row
+                    HStack(spacing: 36) {
+                        Button(action: { vm.seek(by: -10) }) {
+                            Image(systemName: "gobackward.10")
+                                .font(.title2)
+                        }
+                        
+                        Button(action: vm.togglePlayPause) {
+                            Image(systemName: vm.isPlaying ? "pause.circle.fill" : "play.circle.fill")
+                                .font(.system(size: 44))
+                                .foregroundColor(Color(hex: "#10B981"))
+                        }
+                        
+                        Button(action: { vm.seek(by: 10) }) {
+                            Image(systemName: "goforward.10")
+                                .font(.title2)
+                        }
+                        
+                        Button(action: { vm.showSettings.toggle() }) {
+                            Image(systemName: "gearshape.fill")
+                                .font(.title2)
+                        }
                     }
-                    Button(action: nextEpisode) {
-                        Image(systemName: "forward.end.alt")
-                            .font(.title2)
-                    }
-                    Button(action: { vm.showSettings.toggle() }) {
-                        Image(systemName: "gearshape")
-                            .font(.title2)
-                    }
+                    .foregroundColor(.white)
+                    .padding(.vertical, 4)
                 }
-                .foregroundColor(.white)
-                .padding(.vertical, 12)
-                .background(Color.black.opacity(0.6))
-                .cornerRadius(12)
-                .padding(.bottom, 20)
+                .padding(.vertical, 16)
+                .background(
+                    LinearGradient(
+                        colors: [Color.clear, Color.black.opacity(0.85)],
+                        startPoint: .top,
+                        endPoint: .bottom
+                    )
+                )
                 .transition(.move(edge: .bottom).combined(with: .opacity))
             }
         }
@@ -422,17 +506,9 @@ struct PlayerView: View {
                                 vm.setPlaybackRate(newRate)
                             }
                         }
-                        Section(header: Text("Audiosprache")) {
-                            Picker("Sprache", selection: $vm.selectedAudioLanguage) {
-                                Text("Original").tag("Original")
-                                Text("Deutsch").tag("Deutsch")
-                                Text("Englisch").tag("Englisch")
-                            }
-                            // Placeholder: actual language change logic depends on media asset
-                        }
-                        Section {
+                        Section(header: Text("Sleep Timer")) {
                             Button(action: { vm.showSleepTimer = true }) {
-                                Label("Sleep Timer", systemImage: "moon.zzz")
+                                Label("Sleep Timer einstellen", systemImage: "moon.zzz")
                             }
                         }
                     }
@@ -456,22 +532,20 @@ struct PlayerView: View {
             .sheet(isPresented: $vm.showSleepTimer) {
                 NavigationStack {
                     List {
-                        ForEach([30, 45, 60, 90, 120], id: \.self) { minutes in
+                        ForEach([15, 30, 45, 60], id: \.self) { minutes in
                             Button("\(minutes) Minuten") {
                                 vm.startSleepTimer(minutes: minutes)
-                                vm.showSleepTimer = false
                             }
                         }
-                        Button("Abbrechen") {
+                        Button("Timer ausschalten", role: .destructive) {
                             vm.cancelSleepTimer()
                             vm.showSleepTimer = false
                         }
-                        .foregroundColor(.red)
                     }
                     .navigationTitle("Sleep Timer")
                     .toolbar {
                         ToolbarItem(placement: .cancellationAction) {
-                            Button("Schließen") {
+                            Button("Fertig") {
                                 vm.showSleepTimer = false
                             }
                         }
@@ -480,45 +554,4 @@ struct PlayerView: View {
                 .preferredColorScheme(.dark)
             }
     }
-    
-    // MARK: - Episode Navigation (Placeholder)
-    
-    private func previousEpisode() {
-        // Implement actual episode navigation logic
-    }
-    
-    private func nextEpisode() {
-        // Implement actual episode navigation logic
-    }
-}
-
-// MARK: - Preview (Mock Services)
-
-struct MockAniSkipService: AniSkipServiceProtocol {
-    var isEnabled: Bool = true
-    func shouldShowSkipButton(for player: AVPlayer) -> Bool { true }
-    func skipIntro(for player: AVPlayer) {
-        // Assume intro is first 90 seconds
-        player.seek(to: CMTime(seconds: 90, preferredTimescale: 600))
-    }
-    func autoSkipIfNeeded(for player: AVPlayer) {
-        // No auto skip in mock
-    }
-}
-
-class MockStorageService: StorageServiceProtocol {
-    private var store: [String: CMTime] = [:]
-    func savePosition(for videoID: String, position: CMTime) {
-        store[videoID] = position
-    }
-    func loadPosition(for videoID: String) -> CMTime? {
-        store[videoID]
-    }
-}
-
-#Preview {
-    PlayerView(url: URL(string: "https://www.example.com/video.mp4")!,
-               videoID: "sample-video",
-               aniSkipService: MockAniSkipService(),
-               storageService: MockStorageService())
 }
