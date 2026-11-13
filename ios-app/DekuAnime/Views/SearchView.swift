@@ -90,7 +90,11 @@ class SearchViewModel: ObservableObject {
 
 struct SearchView: View {
     @StateObject private var vm = SearchViewModel()
-    private let columns = [GridItem(.flexible()), GridItem(.flexible())]
+    private let columns = [
+        GridItem(.flexible(), spacing: 10),
+        GridItem(.flexible(), spacing: 10),
+        GridItem(.flexible(), spacing: 10)
+    ]
     
     var body: some View {
         NavigationStack {
@@ -159,16 +163,16 @@ struct AnimeGridItem: View {
                 switch phase {
                 case .empty:
                     Color(hex: "#1A1C22")
-                        .frame(height: 190)
+                        .frame(height: 145)
                 case .success(let image):
                     image
                         .resizable()
                         .scaledToFill()
-                        .frame(height: 190)
+                        .frame(height: 145)
                         .clipped()
                 case .failure:
                     Color(hex: "#1A1C22")
-                        .frame(height: 190)
+                        .frame(height: 145)
                         .overlay {
                             Image(systemName: "film")
                                 .font(.title2)
@@ -176,7 +180,7 @@ struct AnimeGridItem: View {
                         }
                 @unknown default:
                     Color(hex: "#1A1C22")
-                        .frame(height: 190)
+                        .frame(height: 145)
                 }
             }
             .clipShape(RoundedRectangle(cornerRadius: 10))

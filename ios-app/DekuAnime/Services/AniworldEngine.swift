@@ -557,26 +557,61 @@ public actor AniworldEngine {
         
         let urlStr = finalUrl.absoluteString
         
-        // 1. Vidmoly direct stream (.m3u8 master playlist)
-        if urlStr.contains("vidmoly") || html.contains("vmpx.online") || html.contains(".m3u8") {
-            let m3u8Pattern = #"https?://[^\s'"<>]+?\.m3u8[^\s'"<>]*"#
-            if let m3u8 = html.extractFirstMatch(pattern: m3u8Pattern), let streamURL = URL(string: m3u8) {
-                return streamURL
+        // Check for client-side JavaScript redirect (e.g., window.location.href = '...')
+        let jsRedirectPattern = #"window\.location\.href\s*=\s*['"](https?://[^'"]+)['"]"#
+        if let jsTarget = html.extractFirstGroup(pattern: jsRedirectPattern), let targetURL = URL(string: jsTarget) {
+            var subReq = URLRequest(url: targetURL)
+            subReq.setValue(userAgent, forHTTPHeaderField: "User-Agent")
+            subReq.setValue(urlStr, forHTTPHeaderField: "Referer")
+            if let (subData, subResp) = try? await session.data(for: subReq),
+               let subHtml = String(data: subData, encoding: .utf8) {
+                if let stream = parseDirectMediaURL(html: subHtml, currentUrl: subResp.url?.absoluteString ?? jsTarget) {
+                    return stream
+                }
             }
         }
         
-        // 2. VOE extraction
-        if urlStr.contains("voe") || urlStr.contains("playmogo") || urlStr.contains("do7go") {
-            let hlsPattern = #"'hls':\s*'([^']+)'"#
-            if let hls = html.extractFirstGroup(pattern: hlsPattern), let streamURL = URL(string: hls) {
-                return streamURL
-            }
-            let m3u8Pattern = #"https?://[^\s'"<>]+?\.m3u8[^\s'"<>]*"#
-            if let m3u8 = html.extractFirstMatch(pattern: m3u8Pattern), let streamURL = URL(string: m3u8) {
-                return streamURL
+        // Base64 encoded redirect (frequent in VOE delivery scripts)
+        let b64Pattern = #"window\.location\.href\s*=\s*atob\(['"]([A-Za-z0-9+/=]+)['"]\)"#
+        if let b64 = html.extractFirstGroup(pattern: b64Pattern),
+           let b64Data = Data(base64Encoded: b64),
+           let decodedUrlStr = String(data: b64Data, encoding: .utf8),
+           let targetURL = URL(string: decodedUrlStr) {
+            var subReq = URLRequest(url: targetURL)
+            subReq.setValue(userAgent, forHTTPHeaderField: "User-Agent")
+            subReq.setValue(urlStr, forHTTPHeaderField: "Referer")
+            if let (subData, subResp) = try? await session.data(for: subReq),
+               let subHtml = String(data: subData, encoding: .utf8) {
+                if let stream = parseDirectMediaURL(html: subHtml, currentUrl: subResp.url?.absoluteString ?? decodedUrlStr) {
+                    return stream
+                }
             }
         }
         
+        return parseDirectMediaURL(html: html, currentUrl: urlStr)
+    }
+
+    private func parseDirectMediaURL(html: String, currentUrl: String) -> URL? {
+        // 1. Vidmoly & VOE explicit file/hls/sources matches
+        let patterns = [
+            #"'hls':\s*['"](https?://[^'"]+)['"]"#,
+            #""hls":\s*['"](https?://[^'"]+)['"]"#,
+            #"file:\s*['"](https?://[^'"]+\.m3u8[^'"]*)['"]"#,
+            #"sources:\s*\[\{\s*file:\s*['"](https?://[^'"]+)['"]"#,
+            #"'mp4':\s*['"](https?://[^'"]+)['"]"#,
+            #""mp4":\s*['"](https?://[^'"]+)['"]"#,
+            #"https?://[^\s'"<>]+\.m3u8[^\s'"<>]*"#,
+            #"https?://[^\s'"<>]+\.mp4[^\s'"<>]*"#
+        ]
+        
+        for pat in patterns {
+            if let match = html.extractFirstGroup(pattern: pat), let url = URL(string: match) {
+                return url
+            }
+            if let match = html.extractFirstMatch(pattern: pat), let url = URL(string: match) {
+                return url
+            }
+        }
         return nil
     }
     

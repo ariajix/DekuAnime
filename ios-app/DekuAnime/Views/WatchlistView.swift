@@ -7,8 +7,9 @@ struct WatchlistView: View {
     @State private var itemToDelete: AnimeItem?
 
     private let columns = [
-        GridItem(.flexible(), spacing: 12),
-        GridItem(.flexible(), spacing: 12)
+        GridItem(.flexible(), spacing: 10),
+        GridItem(.flexible(), spacing: 10),
+        GridItem(.flexible(), spacing: 10)
     ]
 
     var body: some View {
@@ -94,16 +95,16 @@ private struct WatchlistItemView: View {
                     switch phase {
                     case .empty:
                         Color(hex: "#1A1C22")
-                            .frame(height: 190)
+                            .frame(height: 145)
                     case .success(let image):
                         image
                             .resizable()
                             .scaledToFill()
-                            .frame(height: 190)
+                            .frame(height: 145)
                             .clipped()
                     case .failure:
                         Color(hex: "#1A1C22")
-                            .frame(height: 190)
+                            .frame(height: 145)
                             .overlay {
                                 Image(systemName: "film")
                                     .font(.title2)
@@ -111,7 +112,7 @@ private struct WatchlistItemView: View {
                             }
                     @unknown default:
                         Color(hex: "#1A1C22")
-                            .frame(height: 190)
+                            .frame(height: 145)
                     }
                 }
                 .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))

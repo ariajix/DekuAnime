@@ -4,6 +4,7 @@ import AVFoundation
 @main
 struct DekuAnimeApp: App {
     @StateObject private var storage = StorageService.shared
+    @State private var showSplash: Bool = true
 
     init() {
         // Audio session for streaming playback with audio even on silent mode
@@ -32,10 +33,87 @@ struct DekuAnimeApp: App {
 
     var body: some Scene {
         WindowGroup {
-            MainTabView()
-                .environmentObject(storage)
-                .preferredColorScheme(.dark)
-                .tint(Color(hex: "10B981"))
+            ZStack {
+                MainTabView()
+                    .environmentObject(storage)
+                    .preferredColorScheme(.dark)
+                    .tint(Color(hex: "10B981"))
+                
+                if showSplash {
+                    DekuSplashScreenView()
+                        .transition(.opacity)
+                        .zIndex(99)
+                }
+            }
+            .onAppear {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1.6) {
+                    withAnimation(.easeInOut(duration: 0.35)) {
+                        showSplash = false
+                    }
+                }
+            }
+        }
+    }
+}
+
+// MARK: - Splash Screen View
+
+struct DekuSplashScreenView: View {
+    @State private var scale: CGFloat = 0.82
+    @State private var opacity: Double = 0.0
+
+    var body: some View {
+        ZStack {
+            Color(hex: "090B10").ignoresSafeArea()
+            
+            // Emerald background ambient glow
+            RadialGradient(
+                colors: [Color(hex: "10B981").opacity(0.35), Color.clear],
+                center: .center,
+                startRadius: 20,
+                endRadius: 200
+            )
+            .ignoresSafeArea()
+            
+            VStack(spacing: 18) {
+                ZStack {
+                    Circle()
+                        .fill(
+                            LinearGradient(
+                                colors: [Color(hex: "10B981"), Color(hex: "059669")],
+                                startPoint: .topLeading,
+                                endPoint: .bottomTrailing
+                            )
+                        )
+                        .frame(width: 84, height: 84)
+                        .shadow(color: Color(hex: "10B981").opacity(0.65), radius: 24, x: 0, y: 4)
+                    
+                    Image(systemName: "play.fill")
+                        .font(.system(size: 38, weight: .bold))
+                        .foregroundColor(.white)
+                        .offset(x: 3)
+                }
+                
+                VStack(spacing: 6) {
+                    Text("DEKU ANIME")
+                        .font(.system(size: 26, weight: .black, design: .rounded))
+                        .tracking(3)
+                        .foregroundColor(.white)
+                    
+                    Text("Anime Streaming & Downloads")
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundColor(Color.gray.opacity(0.85))
+                        .tracking(1.2)
+                }
+            }
+            .scaleEffect(scale)
+            .opacity(opacity)
+        }
+        .onAppear {
+            withAnimation(.spring(response: 0.6, dampingFraction: 0.75)) {
+                scale = 1.0
+                opacity = 1.0
+            }
         }
     }
 }

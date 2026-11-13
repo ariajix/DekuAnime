@@ -13,6 +13,7 @@ struct DetailView: View {
     @State private var isInWatchlist: Bool = false
     @State private var detailedAnime: Anime?
     @State private var isLoadingEpisodes: Bool = false
+    @State private var isResolvingStream: Bool = false
     @State private var isSynopsisExpanded: Bool = false
     
     let anime: Anime
@@ -22,7 +23,7 @@ struct DetailView: View {
     }
     
     var body: some View {
-        NavigationStack {
+        ZStack(alignment: .topLeading) {
             ScrollView {
                 VStack(alignment: .leading, spacing: 0) {
                     // MARK: - 1. Hero Cover with Smooth Gradient Overlay & Title/Synopsis inside
@@ -232,54 +233,81 @@ struct DetailView: View {
                 }
             }
             .background(Color(hex: "#090B10").ignoresSafeArea())
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .navigationBarLeading) {
-                    Button(action: { dismiss() }) {
-                        Image(systemName: "chevron.left")
-                            .font(.system(size: 16, weight: .bold))
+            .navigationBarBackButtonHidden(true)
+            .toolbar(.hidden, for: .navigationBar)
+
+            // Sleek floating back button (single, glass-morphic)
+            Button(action: { dismiss() }) {
+                Image(systemName: "chevron.left")
+                    .font(.system(size: 15, weight: .bold))
+                    .foregroundColor(.white)
+                    .frame(width: 38, height: 38)
+                    .background(Color.black.opacity(0.6))
+                    .clipShape(Circle())
+                    .overlay(Circle().stroke(Color.white.opacity(0.2), lineWidth: 1))
+            }
+            .padding(.leading, 16)
+            .padding(.top, 46)
+
+            // Loading HUD while resolving stream
+            if isResolvingStream {
+                ZStack {
+                    Color.black.opacity(0.65).ignoresSafeArea()
+                    VStack(spacing: 12) {
+                        ProgressView()
+                            .progressViewStyle(CircularProgressViewStyle(tint: Color(hex: "#10B981")))
+                            .scaleEffect(1.3)
+                        Text("Stream wird geladen...")
+                            .font(.system(size: 13, weight: .medium))
                             .foregroundColor(.white)
                     }
+                    .padding(20)
+                    .background(Color(hex: "#141519"))
+                    .cornerRadius(12)
+                    .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.white.opacity(0.1), lineWidth: 1))
                 }
             }
-            .onAppear {
-                isInWatchlist = StorageService.shared.isInWatchlist(anime: anime)
-                selectedSeason = activeAnime.seasons.first
-                episodes = selectedSeason?.episodes ?? []
-                
-                if !anime.url.isEmpty {
-                    isLoadingEpisodes = episodes.isEmpty
-                    Task {
-                        if let online = try? await AniworldEngine.shared.fetchSeries(seriesPath: anime.url) {
-                            await MainActor.run {
-                                self.detailedAnime = online
-                                self.selectedSeason = online.seasons.first
-                                self.episodes = self.selectedSeason?.episodes ?? []
-                                self.isLoadingEpisodes = false
-                            }
-                        } else {
-                            await MainActor.run {
-                                self.isLoadingEpisodes = false
-                            }
+        }
+        .navigationBarBackButtonHidden(true)
+        .toolbar(.hidden, for: .navigationBar)
+        .onAppear {
+            isInWatchlist = StorageService.shared.isInWatchlist(anime: anime)
+            selectedSeason = activeAnime.seasons.first
+            episodes = selectedSeason?.episodes ?? []
+            
+            if !anime.url.isEmpty {
+                isLoadingEpisodes = episodes.isEmpty
+                Task {
+                    if let online = try? await AniworldEngine.shared.fetchSeries(seriesPath: anime.url) {
+                        await MainActor.run {
+                            self.detailedAnime = online
+                            self.selectedSeason = online.seasons.first
+                            self.episodes = self.selectedSeason?.episodes ?? []
+                            self.isLoadingEpisodes = false
+                        }
+                    } else {
+                        await MainActor.run {
+                            self.isLoadingEpisodes = false
                         }
                     }
                 }
             }
-            .fullScreenCover(isPresented: $showPlayer) {
-                if let url = playerURL {
-                    PlayerView(
-                        url: url,
-                        animeTitle: activeAnime.title,
-                        episodeTitle: currentPlayingEpisode != nil ? "Staffel \(selectedSeason?.number ?? 1) Folge \(currentPlayingEpisode!.number): \(currentPlayingEpisode!.title)" : "Wiedergabe",
-                        posterUrl: activeAnime.posterURL?.absoluteString ?? "",
-                        seriesUrl: activeAnime.url,
-                        episodeUrl: currentPlayingEpisode?.path ?? "",
-                        seasonNumber: selectedSeason?.number ?? 1,
-                        episodeNumber: currentPlayingEpisode?.number ?? 1,
-                        initialTime: 0
-                    )
-                    .ignoresSafeArea()
-                }
+        }
+        .fullScreenCover(isPresented: $showPlayer) {
+            if let url = playerURL {
+                PlayerView(
+                    url: url,
+                    animeTitle: activeAnime.title,
+                    episodeTitle: currentPlayingEpisode != nil ? "Staffel \(selectedSeason?.number ?? 1) Folge \(currentPlayingEpisode!.number): \(currentPlayingEpisode!.title)" : "Wiedergabe",
+                    posterUrl: activeAnime.posterURL?.absoluteString ?? "",
+                    seriesUrl: activeAnime.url,
+                    episodeUrl: currentPlayingEpisode?.path ?? "",
+                    seasonNumber: selectedSeason?.number ?? 1,
+                    episodeNumber: currentPlayingEpisode?.number ?? 1,
+                    episodes: episodes,
+                    initialTime: 0
+                )
+                .ignoresSafeArea()
             }
         }
     }
@@ -313,14 +341,22 @@ struct DetailView: View {
     }
     
     private func playEpisode(_ episode: Episode) async {
+        guard !isResolvingStream else { return }
+        isResolvingStream = true
         currentPlayingEpisode = episode
         do {
             let url = try await AniworldEngine.resolveStream(for: activeAnime, episode: episode)
-            playerURL = url
-            showPlayer = true
+            await MainActor.run {
+                self.playerURL = url
+                self.isResolvingStream = false
+                self.showPlayer = true
+            }
         } catch {
-            playerURL = URL(string: "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4")
-            showPlayer = true
+            await MainActor.run {
+                self.playerURL = URL(string: "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4")
+                self.isResolvingStream = false
+                self.showPlayer = true
+            }
         }
     }
 }

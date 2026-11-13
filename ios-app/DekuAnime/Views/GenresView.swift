@@ -186,7 +186,7 @@ private struct GenreAnimeCardView: View {
                     Color(hex: "1A1C22")
                 }
             }
-            .frame(height: 160)
+            .frame(height: 145)
             .clipped()
             .cornerRadius(8)
             
@@ -219,8 +219,9 @@ struct GenresView: View {
     @State private var isDropdownExpanded = false
     
     private let animeColumns = [
-        GridItem(.flexible(), spacing: 12),
-        GridItem(.flexible(), spacing: 12)
+        GridItem(.flexible(), spacing: 10),
+        GridItem(.flexible(), spacing: 10),
+        GridItem(.flexible(), spacing: 10)
     ]
     
     var body: some View {

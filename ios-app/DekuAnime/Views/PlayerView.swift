@@ -25,15 +25,20 @@ final class PlayerViewModel: ObservableObject {
     @Published var currentTime: Double = 0
     @Published var duration: Double = 0
     @Published var isDraggingSlider = false
+    @Published var isLoadingNext = false
+    @Published var currentEpisodeTitle: String
+    @Published var currentEpisodeIndex: Int
     
     let animeTitle: String
-    let episodeTitle: String
     let posterUrl: String
     let seriesUrl: String
-    let episodeUrl: String
     let seasonNumber: Int
-    let episodeNumber: Int
+    let episodes: [Episode]
     let initialTime: Double
+    
+    var hasNextEpisode: Bool {
+        currentEpisodeIndex + 1 < episodes.count
+    }
     
     private var cancellables = Set<AnyCancellable>()
     private var sleepTimerTask: Task<Void, Never>?
@@ -47,6 +52,7 @@ final class PlayerViewModel: ObservableObject {
          episodeUrl: String = "",
          seasonNumber: Int = 1,
          episodeNumber: Int = 1,
+         episodes: [Episode] = [],
          initialTime: Double = 0) {
         
         // Ensure iOS audio plays via speaker even when mute/silent switch is on
@@ -57,20 +63,32 @@ final class PlayerViewModel: ObservableObject {
             print("Failed to set audio session category: \(error)")
         }
         
-        let playerItem = AVPlayerItem(url: url)
+        // Pass standard browser headers so Vidmoly / VOE CDN doesn't block AVPlayer with 403 Forbidden
+        let headers: [String: String] = [
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+            "Referer": "https://aniworld.to/"
+        ]
+        let asset = AVURLAsset(url: url, options: ["AVURLAssetHTTPHeaderFieldsKey": headers])
+        let playerItem = AVPlayerItem(asset: asset)
         let player = AVPlayer(playerItem: playerItem)
         player.volume = 1.0
         player.isMuted = false
         self.player = player
         
         self.animeTitle = animeTitle
-        self.episodeTitle = episodeTitle
+        self.currentEpisodeTitle = episodeTitle
         self.posterUrl = posterUrl
         self.seriesUrl = seriesUrl
-        self.episodeUrl = episodeUrl
         self.seasonNumber = seasonNumber
-        self.episodeNumber = episodeNumber
+        self.episodes = episodes
         self.initialTime = initialTime
+        
+        // Find index of current episode
+        if let idx = episodes.firstIndex(where: { $0.number == episodeNumber || $0.path == episodeUrl }) {
+            self.currentEpisodeIndex = idx
+        } else {
+            self.currentEpisodeIndex = max(0, episodeNumber - 1)
+        }
         
         // Observe playback state
         player.publisher(for: \.timeControlStatus)
@@ -110,6 +128,14 @@ final class PlayerViewModel: ObservableObject {
                 self.savePlaybackPosition()
             }
         }
+        
+        // Observe Episode End -> Autoplay next episode automatically!
+        NotificationCenter.default.publisher(for: .AVPlayerItemDidPlayToEndTime)
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in
+                self?.playNextEpisode()
+            }
+            .store(in: &cancellables)
     }
     
     deinit {
@@ -141,6 +167,36 @@ final class PlayerViewModel: ObservableObject {
     func seek(to seconds: Double) {
         let target = CMTime(seconds: seconds, preferredTimescale: 600)
         player.seek(to: target, toleranceBefore: .zero, toleranceAfter: .zero)
+    }
+    
+    func playNextEpisode() {
+        guard hasNextEpisode else { return }
+        let nextIdx = currentEpisodeIndex + 1
+        let nextEp = episodes[nextIdx]
+        currentEpisodeIndex = nextIdx
+        currentEpisodeTitle = "Staffel \(seasonNumber) Folge \(nextEp.number): \(nextEp.title)"
+        isLoadingNext = true
+        
+        Task {
+            if let nextStreamUrl = try? await AniworldEngine.shared.resolveStream(episodeUrl: nextEp.path) {
+                await MainActor.run {
+                    let headers: [String: String] = [
+                        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+                        "Referer": "https://aniworld.to/"
+                    ]
+                    let asset = AVURLAsset(url: nextStreamUrl, options: ["AVURLAssetHTTPHeaderFieldsKey": headers])
+                    let newItem = AVPlayerItem(asset: asset)
+                    self.player.replaceCurrentItem(with: newItem)
+                    self.player.playImmediately(atRate: self.playbackRate)
+                    self.currentTime = 0
+                    self.isLoadingNext = false
+                }
+            } else {
+                await MainActor.run {
+                    self.isLoadingNext = false
+                }
+            }
+        }
     }
     
     func formatTime(_ seconds: Double) -> String {
@@ -194,15 +250,18 @@ final class PlayerViewModel: ObservableObject {
     func savePlaybackPosition() {
         let pos = player.currentTime().seconds
         guard pos > 1 else { return }
+        let currentEp = currentEpisodeIndex < episodes.count ? episodes[currentEpisodeIndex] : nil
+        let epNum = currentEp?.number ?? (currentEpisodeIndex + 1)
+        let epUrl = currentEp?.path ?? ""
         Task { @MainActor in
             StorageService.shared.recordWatch(
                 animeTitle: self.animeTitle,
                 posterUrl: self.posterUrl,
                 seriesUrl: self.seriesUrl,
-                episodeUrl: self.episodeUrl,
-                episodeTitle: self.episodeTitle,
+                episodeUrl: epUrl,
+                episodeTitle: self.currentEpisodeTitle,
                 season: self.seasonNumber,
-                episode: self.episodeNumber,
+                episode: epNum,
                 position: pos,
                 duration: self.duration
             )
@@ -235,7 +294,6 @@ struct PlayerView: View {
     @State private var hideControlsTask: Task<Void, Never>? = nil
     
     let animeTitle: String
-    let episodeTitle: String
 
     init(
         url: URL,
@@ -246,10 +304,10 @@ struct PlayerView: View {
         episodeUrl: String = "",
         seasonNumber: Int = 1,
         episodeNumber: Int = 1,
+        episodes: [Episode] = [],
         initialTime: Double = 0
     ) {
         self.animeTitle = animeTitle
-        self.episodeTitle = episodeTitle
         _vm = StateObject(wrappedValue: PlayerViewModel(
             url: url,
             animeTitle: animeTitle,
@@ -259,6 +317,7 @@ struct PlayerView: View {
             episodeUrl: episodeUrl,
             seasonNumber: seasonNumber,
             episodeNumber: episodeNumber,
+            episodes: episodes,
             initialTime: initialTime
         ))
     }
@@ -280,6 +339,7 @@ struct PlayerView: View {
                 .overlay(rippleOverlay)
                 .overlay(topControls, alignment: .top)
                 .overlay(bottomControls, alignment: .bottom)
+                .overlay(loadingOverlay)
                 .overlay(settingsSheet)
                 .overlay(sleepTimerSheet)
         }
@@ -320,7 +380,7 @@ struct PlayerView: View {
                             .font(.headline.bold())
                             .foregroundColor(.white)
                             .lineLimit(1)
-                        Text(episodeTitle)
+                        Text(vm.currentEpisodeTitle)
                             .font(.subheadline)
                             .foregroundColor(.gray)
                             .lineLimit(1)
@@ -413,7 +473,29 @@ struct PlayerView: View {
         }
     }
     
-    // MARK: - Bottom Controls with Scrubber / Progress Bar
+    // MARK: - Loading Overlay for Next Episode
+    
+    @ViewBuilder
+    private var loadingOverlay: some View {
+        if vm.isLoadingNext {
+            ZStack {
+                Color.black.opacity(0.7).ignoresSafeArea()
+                VStack(spacing: 12) {
+                    ProgressView()
+                        .tint(Color(hex: "#10B981"))
+                        .scaleEffect(1.3)
+                    Text("Nächste Episode wird geladen...")
+                        .font(.subheadline.bold())
+                        .foregroundColor(.white)
+                }
+                .padding(20)
+                .background(Color(hex: "#141519"))
+                .cornerRadius(12)
+            }
+        }
+    }
+    
+    // MARK: - Bottom Controls with Scrubber & Next Episode Button
     
     private var bottomControls: some View {
         VStack {
@@ -451,7 +533,7 @@ struct PlayerView: View {
                     .padding(.horizontal, 20)
                     
                     // Buttons Row
-                    HStack(spacing: 36) {
+                    HStack(spacing: 34) {
                         Button(action: { vm.seek(by: -10) }) {
                             Image(systemName: "gobackward.10")
                                 .font(.title2)
@@ -467,6 +549,14 @@ struct PlayerView: View {
                             Image(systemName: "goforward.10")
                                 .font(.title2)
                         }
+                        
+                        // Next Episode Button
+                        Button(action: { vm.playNextEpisode() }) {
+                            Image(systemName: "forward.end.fill")
+                                .font(.title2)
+                                .foregroundColor(vm.hasNextEpisode ? Color(hex: "#10B981") : .gray)
+                        }
+                        .disabled(!vm.hasNextEpisode)
                         
                         Button(action: { vm.showSettings.toggle() }) {
                             Image(systemName: "gearshape.fill")
